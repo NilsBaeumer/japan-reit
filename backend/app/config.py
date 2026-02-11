@@ -17,19 +17,30 @@ class Settings(BaseSettings):
     app_host: str = "0.0.0.0"
     app_port: int = 8000
 
-    # Database - supports PostgreSQL (production) or SQLite (dev fallback)
-    database_url_override: str = ""  # Set to override auto-detection
+    # Database — Supabase PostgreSQL (primary) or SQLite (local dev fallback)
+    database_url: str = ""  # Supabase connection string (postgresql://...)
+    use_sqlite: bool = False  # Set True for local dev without Supabase
+
+    # Legacy PostgreSQL settings (only used if database_url not set and use_sqlite=False)
     postgres_user: str = "japan_reit"
     postgres_password: str = "japan_reit_dev"
     postgres_db: str = "japan_reit"
     db_host: str = "localhost"
     db_port: int = 5432
-    use_sqlite: bool = True  # Default to SQLite for easy dev setup
 
     @property
-    def database_url(self) -> str:
-        if self.database_url_override:
-            return self.database_url_override
+    def effective_database_url(self) -> str:
+        """Return the async database URL to use."""
+        if self.database_url:
+            url = self.database_url
+            # Convert postgres:// to postgresql+asyncpg://
+            if url.startswith("postgres://"):
+                url = "postgresql+asyncpg://" + url[len("postgres://"):]
+            elif url.startswith("postgresql://"):
+                url = "postgresql+asyncpg://" + url[len("postgresql://"):]
+            elif not url.startswith("postgresql+asyncpg://"):
+                url = "postgresql+asyncpg://" + url
+            return url
         if self.use_sqlite:
             db_path = Path(__file__).parent.parent / "data" / "japan_reit.db"
             db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -40,20 +51,21 @@ class Settings(BaseSettings):
         )
 
     @property
-    def database_url_sync(self) -> str:
-        if self.use_sqlite:
-            db_path = Path(__file__).parent.parent / "data" / "japan_reit.db"
-            return f"sqlite:///{db_path}"
-        return (
-            f"postgresql://{self.postgres_user}:{self.postgres_password}"
-            f"@{self.db_host}:{self.db_port}/{self.postgres_db}"
-        )
-
-    @property
     def is_sqlite(self) -> bool:
-        return self.database_url.startswith("sqlite")
+        return self.effective_database_url.startswith("sqlite")
 
-    # Redis
+    # API key for securing remote trigger endpoint
+    scraper_api_key: str = ""
+
+    # Supabase Storage (for image uploads)
+    supabase_url: str = ""
+    supabase_service_role_key: str = ""
+    supabase_storage_bucket: str = "property-images"
+
+    # Google Translate
+    google_translate_api_key: str = ""
+
+    # Redis (optional, for Celery)
     redis_host: str = "localhost"
     redis_port: int = 6379
 
@@ -69,7 +81,7 @@ class Settings(BaseSettings):
     scrape_max_retries: int = 3
 
     # Scheduler (periodic scraping)
-    scheduler_enabled: bool = False  # Set True to auto-scrape on interval
+    scheduler_enabled: bool = False
     scheduler_interval_hours: float = 6.0
 
 

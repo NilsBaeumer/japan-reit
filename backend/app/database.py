@@ -22,7 +22,7 @@ class Base(DeclarativeBase):
 
 
 # Determine engine kwargs based on database type
-_db_url = settings.database_url
+_db_url = settings.effective_database_url
 _engine_kwargs: dict = {
     "echo": settings.app_debug,
 }
@@ -31,7 +31,7 @@ if _db_url.startswith("sqlite"):
     # SQLite dev mode - no pool size settings
     _engine_kwargs["connect_args"] = {"check_same_thread": False}
 else:
-    # PostgreSQL production mode
+    # PostgreSQL / Supabase production mode
     _engine_kwargs["pool_size"] = 20
     _engine_kwargs["max_overflow"] = 10
 
@@ -51,6 +51,19 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def create_all_tables():
-    """Create all tables directly (for SQLite dev mode)."""
+    """Create scraper infrastructure tables (scrape_sources, scrape_jobs, scrape_logs).
+
+    NOTE: Property data tables (properties, property_listings, property_images, etc.)
+    are managed by the Next.js app via Drizzle ORM migrations. The scraper only creates
+    its own tables that are not in the Drizzle schema.
+    """
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        # Only create tables that belong to the scraper (not Drizzle-managed)
+        from app.models.scraping import ScrapeSource, ScrapeJob, ScrapeLog
+        tables = [
+            ScrapeSource.__table__,
+            ScrapeJob.__table__,
+            ScrapeLog.__table__,
+        ]
+        for table in tables:
+            await conn.run_sync(lambda sync_conn, t=table: t.create(sync_conn, checkfirst=True))
