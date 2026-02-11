@@ -81,9 +81,10 @@ export default function Dashboard() {
 
   // --- Quick Action mutations ---
   const [actionFeedback, setActionFeedback] = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
+  const [quickPrefecture, setQuickPrefecture] = useState('14')
 
   const suumoScrape = useMutation({
-    mutationFn: () => api.post('/scraping/jobs', { source_id: 'suumo' }),
+    mutationFn: () => api.post('/scraping/jobs', { source_id: 'suumo', prefecture_code: quickPrefecture, search_params: { price_max: 15000000 } }),
     onSuccess: () => {
       setActionFeedback({ type: 'success', msg: 'SUUMO scrape job started' })
       queryClient.invalidateQueries({ queryKey: ['scraping'] })
@@ -225,6 +226,24 @@ export default function Dashboard() {
         <h3 className="text-lg font-semibold mb-4">Quick Actions</h3>
         <div className="flex flex-wrap items-center gap-3">
           {/* Start SUUMO Scrape */}
+          <select
+            value={quickPrefecture}
+            onChange={(e) => setQuickPrefecture(e.target.value)}
+            className="px-3 py-2.5 text-sm rounded-md border border-border bg-background"
+          >
+            <option value="13">東京都</option>
+            <option value="14">神奈川県</option>
+            <option value="12">千葉県</option>
+            <option value="11">埼玉県</option>
+            <option value="27">大阪府</option>
+            <option value="23">愛知県</option>
+            <option value="26">京都府</option>
+            <option value="28">兵庫県</option>
+            <option value="40">福岡県</option>
+            <option value="01">北海道</option>
+            <option value="22">静岡県</option>
+            <option value="34">広島県</option>
+          </select>
           <button
             onClick={() => suumoScrape.mutate()}
             disabled={suumoScrape.isPending}
@@ -233,7 +252,7 @@ export default function Dashboard() {
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m5.231 13.481L15 17.25m-4.5-15H5.625c-.621 0-1.125.504-1.125 1.125v16.5c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9zm3.75 11.625a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
             </svg>
-            {suumoScrape.isPending ? 'Starting...' : 'Start SUUMO Scrape'}
+            {suumoScrape.isPending ? 'Starting...' : 'Scrape SUUMO'}
           </button>
 
           {/* Run Scoring */}
