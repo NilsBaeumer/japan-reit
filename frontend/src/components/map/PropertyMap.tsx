@@ -1,8 +1,9 @@
-import { useRef, useEffect, useCallback } from 'react'
+import { useRef, useEffect, useCallback, useState } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import type { GeoJSONFeatureCollection } from '@/api/types'
 import { createPopupHTML } from './PropertyPopup'
+import HazardOverlayControls from './HazardOverlayControls'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -38,6 +39,7 @@ export default function PropertyMap({ geojson, isLoading }: PropertyMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const popupRef = useRef<maplibregl.Popup | null>(null)
+  const [mapInstance, setMapInstance] = useState<maplibregl.Map | null>(null)
 
   // ---- Initialise MapLibre map ----
   useEffect(() => {
@@ -75,6 +77,7 @@ export default function PropertyMap({ geojson, isLoading }: PropertyMapProps) {
     map.on('load', () => {
       addSourceAndLayers(map)
       attachInteractions(map)
+      setMapInstance(map)
     })
 
     mapRef.current = map
@@ -86,6 +89,7 @@ export default function PropertyMap({ geojson, isLoading }: PropertyMapProps) {
     return () => {
       window.removeEventListener('resize', handleResize)
       popupRef.current?.remove()
+      setMapInstance(null)
       map.remove()
       mapRef.current = null
     }
@@ -159,6 +163,9 @@ export default function PropertyMap({ geojson, isLoading }: PropertyMapProps) {
           {geojson.features.length} {geojson.features.length === 1 ? 'property' : 'properties'}
         </div>
       )}
+
+      {/* Hazard overlay controls */}
+      <HazardOverlayControls map={mapInstance} />
     </div>
   )
 }

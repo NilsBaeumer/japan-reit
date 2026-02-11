@@ -12,6 +12,7 @@ router = APIRouter()
 async def list_properties(
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=200),
+    search: str | None = None,
     price_min: int | None = None,
     price_max: int | None = None,
     prefecture_code: str | None = None,
@@ -25,6 +26,8 @@ async def list_properties(
 ):
     query = select(Property).where(Property.status == status)
 
+    if search:
+        query = query.where(Property.address_ja.ilike(f"%{search}%"))
     if price_min is not None:
         query = query.where(Property.price >= price_min)
     if price_max is not None:
@@ -63,6 +66,7 @@ async def list_properties(
 
 @router.get("/geojson")
 async def properties_geojson(
+    search: str | None = None,
     price_min: int | None = None,
     price_max: int | None = None,
     municipality_code: str | None = None,
@@ -77,6 +81,8 @@ async def properties_geojson(
         Property.longitude.isnot(None),
     )
 
+    if search:
+        query = query.where(Property.address_ja.ilike(f"%{search}%"))
     if price_min is not None:
         query = query.where(Property.price >= price_min)
     if price_max is not None:

@@ -110,7 +110,7 @@ export default function HazardOverlayControls({ map }: HazardOverlayControlsProp
   }
 
   return (
-    <div className="absolute top-2 right-12 z-10">
+    <div className="absolute top-14 right-2 z-10">
       {/* Toggle button */}
       <button
         onClick={() => setIsOpen((prev) => !prev)}

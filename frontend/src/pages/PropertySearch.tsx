@@ -11,6 +11,7 @@ export default function PropertySearch() {
   const [viewMode, setViewMode] = useState<'table' | 'map'>('table')
 
   const page = Number(searchParams.get('page') || '1')
+  const search = searchParams.get('search') || ''
   const priceMin = searchParams.get('price_min') || ''
   const priceMax = searchParams.get('price_max') || '15000000'
   const minScore = searchParams.get('min_score') || ''
@@ -24,6 +25,7 @@ export default function PropertySearch() {
     price_max: priceMax,
     sort_by: sortBy,
     sort_dir: sortDir,
+    ...(search && { search }),
     ...(priceMin && { price_min: priceMin }),
     ...(minScore && { min_score: minScore }),
     ...(rebuildFilter && { rebuild_possible: rebuildFilter }),
@@ -37,6 +39,7 @@ export default function PropertySearch() {
   // GeoJSON query for map view (uses same filters, no pagination)
   const geoQueryString = new URLSearchParams({
     price_max: priceMax,
+    ...(search && { search }),
     ...(priceMin && { price_min: priceMin }),
     ...(minScore && { min_score: minScore }),
     ...(rebuildFilter && { rebuild_possible: rebuildFilter }),
@@ -79,6 +82,22 @@ export default function PropertySearch() {
 
       {/* Filters */}
       <div className="flex flex-wrap gap-4 p-4 rounded-lg border bg-card">
+        <div className="w-full sm:w-auto sm:flex-1 sm:max-w-xs">
+          <label className="text-xs font-medium text-muted-foreground">Address Search</label>
+          <input
+            type="text"
+            value={search}
+            placeholder="Search by address..."
+            onChange={(e) => {
+              const params = new URLSearchParams(searchParams)
+              if (e.target.value) params.set('search', e.target.value)
+              else params.delete('search')
+              params.set('page', '1')
+              setSearchParams(params)
+            }}
+            className="block mt-1 w-full px-3 py-1.5 text-sm border rounded-md bg-background placeholder:text-muted-foreground/60"
+          />
+        </div>
         <div>
           <label className="text-xs font-medium text-muted-foreground">Min Price</label>
           <select
