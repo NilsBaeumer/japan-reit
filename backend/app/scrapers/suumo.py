@@ -75,9 +75,8 @@ class SuumoScraper(AbstractScraper):
           bs  = property type (021=中古戸建)
           ta  = prefecture code (13=Tokyo, 27=Osaka, etc.)
           pc  = price ceiling (万円)
-          pj  = page number
-          po  = sort order (1=new, 2=price_asc, 3=price_desc)
-          cn  = results per page (30, 50, 100)
+          page = page number
+          po   = sort order (1=new, 2=price_asc, 3=price_desc)
         """
         prefecture_code = params.prefecture_code or "13"
         ar = SUUMO_REGION_CODES.get(prefecture_code, "030")
@@ -86,7 +85,7 @@ class SuumoScraper(AbstractScraper):
         url = (
             f"{self.base_url}/jj/bukken/ichiran/JJ012FC001/"
             f"?ar={ar}&bs=021&ta={prefecture_code}"
-            f"&pc={pc}&cn=50&po=2&page={page}"
+            f"&pc={pc}&po=2&page={page}"
         )
         return url
 
