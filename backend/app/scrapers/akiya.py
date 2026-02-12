@@ -47,6 +47,9 @@ _PREFECTURE_NAMES: dict[str, str] = {
     "45": "宮崎県", "46": "鹿児島県", "47": "沖縄県",
 }
 
+# Reverse lookup: name -> JIS code (e.g. "長野県" -> "20")
+_PREFECTURE_CODE_BY_NAME: dict[str, str] = {v: k for k, v in _PREFECTURE_NAMES.items()}
+
 # Default HTTP headers - polite, identifiable request
 _DEFAULT_HEADERS = {
     "User-Agent": (
@@ -684,13 +687,16 @@ class AkiyaScraper(AbstractScraper):
                     image_urls.append(src)
 
         # ----- Prefecture / municipality from address -----
+        # prefecture field must contain the JIS code (e.g. "20"), not the name
         prefecture: str | None = None
         municipality: str | None = None
         if address:
-            prefecture = _prefecture_from_address(address)
+            pref_name = _prefecture_from_address(address)
             municipality = _municipality_from_address(address)
+            if pref_name:
+                prefecture = _PREFECTURE_CODE_BY_NAME.get(pref_name)
         if not prefecture and prefecture_code:
-            prefecture = _PREFECTURE_NAMES.get(prefecture_code)
+            prefecture = prefecture_code  # Already a JIS code
 
         # Must have at least a URL to be useful
         if not address and price is None and not title:
@@ -1051,11 +1057,14 @@ class AkiyaScraper(AbstractScraper):
                     image_urls.append(src)
 
         # ---- Prefecture / municipality ----
+        # prefecture must be JIS code (e.g. "20"), not name (e.g. "長野県")
         prefecture: str | None = None
         municipality: str | None = None
         if address:
-            prefecture = _prefecture_from_address(address)
+            pref_name = _prefecture_from_address(address)
             municipality = _municipality_from_address(address)
+            if pref_name:
+                prefecture = _PREFECTURE_CODE_BY_NAME.get(pref_name)
 
         source_id = _extract_source_id(url)
 
