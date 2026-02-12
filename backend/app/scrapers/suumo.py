@@ -16,7 +16,9 @@ import re
 import structlog
 from bs4 import BeautifulSoup, Tag
 
-from app.scrapers.base import AbstractScraper, RawListing, SearchParams
+from datetime import datetime, timezone
+
+from app.scrapers.base import AbstractScraper, RawListing, ScrapeResult, SearchParams
 from app.scrapers.registry import register_scraper
 
 logger = structlog.get_logger()
@@ -374,11 +376,27 @@ class SuumoScraper(AbstractScraper):
         match = re.search(r"([\d.]+)", text)
         return float(match.group(1)) if match else None
 
-    async def scrape_detail(self, listing_url: str) -> RawListing | None:
-        """Skip detail scraping — search cards already have price, address,
-        area, floor plan, and year built.  Detail scraping opens a new Playwright
-        browser per listing (30s delay × 1500 listings = 12+ hours).
+    async def run(self, params: SearchParams) -> tuple[list[RawListing], ScrapeResult]:
+        """Override run() to skip detail scraping entirely.
+
+        SUUMO search cards already contain price, address, area, floor plan,
+        and year built.  The base run() sleeps crawl_delay_seconds between
+        each listing's scrape_detail() call — 30s × 1500 = 12+ hours of idle
+        waiting even though scrape_detail() returns None immediately.
         """
+        result = ScrapeResult()
+        try:
+            listings = await self.search_listings(params)
+            result.listings_found = len(listings)
+        except Exception as e:
+            logger.error("Scrape failed", source=self.source_id, error=str(e))
+            result.errors.append(f"Search failed: {e}")
+            listings = []
+        result.completed_at = datetime.now(timezone.utc)
+        return listings, result
+
+    async def scrape_detail(self, listing_url: str) -> RawListing | None:
+        """Not used — run() is overridden to skip detail scraping."""
         return None
 
     def _parse_detail_page(self, html: str, url: str) -> RawListing | None:
