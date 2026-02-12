@@ -953,8 +953,8 @@ class AkiyaScraper(AbstractScraper):
         # Try to find coordinates in a script tag (Google Maps embed etc.)
         for script in soup.select("script"):
             script_text = script.string or ""
-            lat_match = re.search(r"lat[itude]*[\"':\s]+(-?\d+\.\d+)", script_text)
-            lng_match = re.search(r"lng|lon[gitude]*[\"':\s]+(-?\d+\.\d+)", script_text)
+            lat_match = re.search(r"lat(?:itude)?[\"':\s]+(-?\d+\.\d+)", script_text)
+            lng_match = re.search(r"(?:lng|lon(?:gitude)?)[\"':\s]+(-?\d+\.\d+)", script_text)
             if lat_match and lng_match:
                 latitude = float(lat_match.group(1))
                 longitude = float(lng_match.group(1))
