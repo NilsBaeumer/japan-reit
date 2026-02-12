@@ -9,7 +9,13 @@ from datetime import datetime, timezone
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.new_schema import NewProperty, NewPropertyListing, NewPropertyImage
+from app.models.new_schema import (
+    NewProperty,
+    NewPropertyListing,
+    NewPropertyImage,
+    NewHazardAssessment,
+    NewPropertyScore,
+)
 from app.scrapers.base import RawListing
 from app.services.translate_service import TranslateService
 from app.services.image_upload_service import ImageUploadService
@@ -78,6 +84,60 @@ class SupabasePropertyService:
 
             self.session.add(prop)
             await self.session.flush()  # Get the serial ID
+
+            # Create stub hazard assessment (will be enriched later)
+            hazard = NewHazardAssessment(property_id=prop.id)
+            self.session.add(hazard)
+
+            # Create stub property score with basic inline computation
+            score = NewPropertyScore(property_id=prop.id)
+            # Compute basic scores from raw data
+            if raw.price and raw.land_area_sqm and raw.land_area_sqm > 0:
+                ppsm = raw.price / raw.land_area_sqm
+                # Value score: cheaper = higher score (under 30k/sqm = 80+)
+                if ppsm < 10_000:
+                    score.value_score = 95
+                elif ppsm < 30_000:
+                    score.value_score = 80
+                elif ppsm < 60_000:
+                    score.value_score = 60
+                elif ppsm < 100_000:
+                    score.value_score = 40
+                else:
+                    score.value_score = 20
+            if raw.year_built:
+                age = 2026 - raw.year_built
+                # Condition score: newer = higher
+                if age <= 5:
+                    score.condition_score = 90
+                elif age <= 15:
+                    score.condition_score = 70
+                elif age <= 30:
+                    score.condition_score = 50
+                elif age <= 50:
+                    score.condition_score = 30
+                else:
+                    score.condition_score = 15
+            if raw.rebuild_possible is not None:
+                score.rebuild_score = 80 if raw.rebuild_possible else 20
+                if raw.road_width_m and raw.road_width_m >= 4.0:
+                    score.rebuild_score = min(100, score.rebuild_score + 15)
+            # Compute composite (weighted average of non-zero scores)
+            weights = {"rebuild": 0.25, "hazard": 0.20, "infrastructure": 0.15,
+                       "demographic": 0.15, "value": 0.15, "condition": 0.10}
+            scores = {
+                "rebuild": score.rebuild_score, "hazard": score.hazard_score,
+                "infrastructure": score.infrastructure_score,
+                "demographic": score.demographic_score,
+                "value": score.value_score, "condition": score.condition_score,
+            }
+            total_weight = sum(w for k, w in weights.items() if scores[k] > 0)
+            if total_weight > 0:
+                score.composite_score = sum(
+                    scores[k] * weights[k] for k in weights if scores[k] > 0
+                ) / total_weight
+            self.session.add(score)
+
             is_new = True
         else:
             self._update_property_fields(prop, raw)

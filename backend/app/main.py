@@ -57,20 +57,31 @@ def create_app() -> FastAPI:
 
     app.include_router(api_router, prefix="/api/v1")
 
-    # --- Health endpoint (K-06) ---
+    # --- Verify API key helper ---
+    def _verify_api_key(request: Request):
+        api_key = request.headers.get("X-API-Key") or request.headers.get("x-api-key")
+        if not settings.scraper_api_key:
+            raise HTTPException(status_code=500, detail="SCRAPER_API_KEY not configured")
+        if api_key != settings.scraper_api_key:
+            raise HTTPException(status_code=401, detail="Invalid API key")
+
+    # --- Health endpoint (K-06, enriched N-04) ---
     @app.get("/health")
     async def health_check():
-        """Enhanced health check: DB connectivity, last scrape time, service status."""
+        """Enhanced health check: DB connectivity, per-source stats, property count."""
         from app.database import async_session
-        from sqlalchemy import select, text
-        from app.models.scraping import ScrapeJob
+        from sqlalchemy import select, text, func
+        from app.models.scraping import ScrapeJob, ScrapeSource
+        from app.models.new_schema import NewProperty, NewPropertyListing
 
         result = {
             "status": "healthy",
             "version": "2.0.0",
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "database": "unknown",
+            "property_count": 0,
             "last_scrape": None,
+            "sources": [],
             "scheduler_enabled": settings.scheduler_enabled,
             "translate_available": bool(settings.google_translate_api_key),
             "storage_available": bool(settings.supabase_url and settings.supabase_service_role_key),
@@ -81,7 +92,13 @@ def create_app() -> FastAPI:
                 await session.execute(text("SELECT 1"))
                 result["database"] = "connected"
 
-                # Get last completed scrape
+                # Total property count
+                count_result = await session.execute(
+                    select(func.count(NewProperty.id))
+                )
+                result["property_count"] = count_result.scalar() or 0
+
+                # Get last completed scrape (global)
                 last_job = await session.execute(
                     select(ScrapeJob)
                     .where(ScrapeJob.status == "completed")
@@ -96,11 +113,109 @@ def create_app() -> FastAPI:
                         "listings_found": job.listings_found,
                         "listings_new": job.listings_new,
                     }
+
+                # Per-source statistics
+                sources_result = await session.execute(select(ScrapeSource))
+                for source in sources_result.scalars().all():
+                    # Count listings from this source
+                    listing_count = await session.execute(
+                        select(func.count(NewPropertyListing.id)).where(
+                            NewPropertyListing.source_id == source.id
+                        )
+                    )
+
+                    # Last completed job for this source
+                    source_last = await session.execute(
+                        select(ScrapeJob)
+                        .where(ScrapeJob.source_id == source.id, ScrapeJob.status == "completed")
+                        .order_by(ScrapeJob.completed_at.desc())
+                        .limit(1)
+                    )
+                    source_job = source_last.scalar_one_or_none()
+
+                    result["sources"].append({
+                        "id": source.id,
+                        "name": source.display_name,
+                        "enabled": source.is_enabled,
+                        "listing_count": listing_count.scalar() or 0,
+                        "last_scrape_time": source_job.completed_at.isoformat() if source_job and source_job.completed_at else None,
+                        "listings_found": source_job.listings_found if source_job else None,
+                        "listings_new": source_job.listings_new if source_job else None,
+                    })
+
         except Exception as e:
             result["status"] = "degraded"
             result["database"] = f"error: {str(e)[:100]}"
 
         return result
+
+    # --- Scrape job status endpoint (N-03) ---
+    @app.get("/api/scrape/status/{job_id}")
+    async def scrape_status(job_id: str, request: Request):
+        """Get real-time status of a scrape job."""
+        _verify_api_key(request)
+
+        from app.database import async_session
+        from sqlalchemy import select
+        from app.models.scraping import ScrapeJob
+        from app.tasks.runner import get_task_status
+
+        task_status = get_task_status(job_id)
+
+        async with async_session() as session:
+            result = await session.execute(
+                select(ScrapeJob).where(ScrapeJob.id == job_id)
+            )
+            job = result.scalar_one_or_none()
+            if not job:
+                raise HTTPException(status_code=404, detail="Job not found")
+
+            return {
+                "id": str(job.id),
+                "source_id": job.source_id,
+                "status": job.status,
+                "task_running": task_status == "running",
+                "started_at": job.started_at.isoformat() if job.started_at else None,
+                "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+                "listings_found": job.listings_found,
+                "listings_new": job.listings_new,
+                "listings_updated": job.listings_updated,
+                "error_message": job.error_message,
+            }
+
+    # --- Scrape job history endpoint (N-03) ---
+    @app.get("/api/scrape/history")
+    async def scrape_history(request: Request):
+        """Get recent scrape job history."""
+        _verify_api_key(request)
+
+        from app.database import async_session
+        from sqlalchemy import select
+        from app.models.scraping import ScrapeJob
+
+        async with async_session() as session:
+            result = await session.execute(
+                select(ScrapeJob)
+                .order_by(ScrapeJob.created_at.desc())
+                .limit(20)
+            )
+            jobs = result.scalars().all()
+
+            return {
+                "jobs": [
+                    {
+                        "id": str(j.id),
+                        "source_id": j.source_id,
+                        "status": j.status,
+                        "started_at": j.started_at.isoformat() if j.started_at else None,
+                        "completed_at": j.completed_at.isoformat() if j.completed_at else None,
+                        "listings_found": j.listings_found,
+                        "listings_new": j.listings_new,
+                        "error_message": j.error_message,
+                    }
+                    for j in jobs
+                ],
+            }
 
     # --- Remote trigger endpoint (K-05) ---
     @app.post("/api/scrape/trigger")
@@ -109,12 +224,7 @@ def create_app() -> FastAPI:
 
         Requires X-API-Key header matching SCRAPER_API_KEY env var.
         """
-        # Verify API key
-        api_key = request.headers.get("X-API-Key") or request.headers.get("x-api-key")
-        if not settings.scraper_api_key:
-            raise HTTPException(status_code=500, detail="SCRAPER_API_KEY not configured")
-        if api_key != settings.scraper_api_key:
-            raise HTTPException(status_code=401, detail="Invalid API key")
+        _verify_api_key(request)
 
         body = await request.json()
         source_id = body.get("source_id")

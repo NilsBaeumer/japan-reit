@@ -47,11 +47,13 @@ async def run_scrape_job_async(job_id: str):
         job.started_at = datetime.now(timezone.utc)
         await session.commit()
 
-        # Initialize optional services
-        translate_service = TranslateService()
-        image_service = ImageUploadService()
+        # Initialize optional services (set to None first for finally-block safety)
+        translate_service = None
+        image_service = None
 
         try:
+            translate_service = TranslateService()
+            image_service = ImageUploadService()
             params = SearchParams(
                 prefecture_code=job.prefecture_code,
                 municipality_code=job.municipality_code,
@@ -106,8 +108,10 @@ async def run_scrape_job_async(job_id: str):
             logger.error("Scrape job failed", job_id=job_id, error=str(e))
 
         finally:
-            await translate_service.close()
-            await image_service.close()
+            if translate_service:
+                await translate_service.close()
+            if image_service:
+                await image_service.close()
 
 
 def dispatch_scrape_job(job_id: str):
