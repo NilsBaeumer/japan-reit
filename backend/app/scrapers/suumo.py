@@ -86,7 +86,7 @@ class SuumoScraper(AbstractScraper):
         url = (
             f"{self.base_url}/jj/bukken/ichiran/JJ012FC001/"
             f"?ar={ar}&bs=021&ta={prefecture_code}"
-            f"&pc={pc}&cn=50&po=2&pj={page}"
+            f"&pc={pc}&cn=50&po=2&page={page}"
         )
         return url
 
@@ -149,11 +149,17 @@ class SuumoScraper(AbstractScraper):
     def _has_next_page(self, html: str) -> bool:
         """Check if there are more pages of results."""
         soup = BeautifulSoup(html, "lxml")
-        # SUUMO pagination: look for "次へ" (next) link or pagination_set
-        next_link = soup.select_one("a:contains('次へ'), .pagination_set-nav a[rel='next']")
-        if next_link:
+
+        # Look for rel="next" link
+        if soup.select_one(".pagination_set-nav a[rel='next']"):
             return True
-        # Also check page numbers
+
+        # Look for "次へ" text in links (BS4 doesn't support :contains)
+        for a_tag in soup.select("a"):
+            if a_tag.get_text(strip=True) == "次へ":
+                return True
+
+        # Check page numbers
         pagination = soup.select(".pagination_set .pagination_set-num")
         return len(pagination) > 1
 

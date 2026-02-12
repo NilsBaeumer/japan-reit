@@ -6,16 +6,17 @@ client (httpx) plus BeautifulSoup is sufficient -- no browser automation
 required.
 
 Primary aggregation portal: https://www.akiya-athome.jp
-This is the at home aggregation of national akiya banks.
 
-Search URL pattern:
-    https://www.akiya-athome.jp/buy/{prefecture_code}/?page={page}
+Search flow (2026):
+    1. Fetch municipality codes: /bukken/search/areas/?search_type=area&br_kbn=buy&sbt_kbn=house&pref_cd={code}
+    2. Search with municipality codes: /bukken/search/list/?search_type=area&br_kbn=buy&sbt_kbn=house&pref_cd={code}&gyosei_cd[]={muni}
 
 Crawl delay: 3 seconds (lighter pages than JS-rendered portals).
 """
 
 from __future__ import annotations
 
+import json
 import re
 from urllib.parse import urljoin
 
@@ -192,9 +193,10 @@ def _extract_text(tag: Tag | None) -> str:
 def _extract_source_id(url: str) -> str:
     """Derive a stable source_id from an akiya-athome detail URL.
 
-    Typical URL shape:
+    Typical URL shapes:
+        https://okutama-t13308.akiya-athome.jp/bukken/detail/buy/43556
         https://www.akiya-athome.jp/buy/detail/12345
-    We extract the trailing numeric/alphanumeric segment.
+    We extract the trailing numeric segment.
     """
     # Try to grab a trailing numeric ID
     match = re.search(r"/(\d+)/?(?:\?.*)?$", url.rstrip("/"))
@@ -236,20 +238,83 @@ class AkiyaScraper(AbstractScraper):
     # URL building
     # ------------------------------------------------------------------
 
-    def _build_search_url(self, params: SearchParams, page: int = 1) -> str:
-        """Build the akiya-athome search URL for a given prefecture and page.
+    def _build_search_url(
+        self,
+        params: SearchParams,
+        municipality_codes: list[str] | None = None,
+        page: int = 1,
+    ) -> str:
+        """Build the akiya-athome search URL.
 
-        Pattern:
-            https://www.akiya-athome.jp/buy/{prefecture_code}/?page={page}
+        URL pattern (2026):
+            /bukken/search/list/?search_type=area&br_kbn=buy&sbt_kbn=house
+            &pref_cd={code}&gyosei_cd[]={muni}&item_count=100&page={page}
         """
-        prefecture_code = params.prefecture_code or "13"
-        # Ensure 2-digit zero-padded code
-        prefecture_code = prefecture_code.zfill(2)
+        prefecture_code = (params.prefecture_code or "13").zfill(2)
 
-        url = f"{self.base_url}/buy/{prefecture_code}/"
+        url = (
+            f"{self.base_url}/bukken/search/list/"
+            f"?search_type=area&br_kbn=buy&sbt_kbn=house"
+            f"&pref_cd={prefecture_code}"
+        )
+
+        if municipality_codes:
+            for code in municipality_codes:
+                url += f"&gyosei_cd[]={code}"
+
+        url += "&item_count=100&search_sort=kokai_date"
+
         if page > 1:
-            url += f"?page={page}"
+            url += f"&page={page}"
+
         return url
+
+    # ------------------------------------------------------------------
+    # Municipality discovery
+    # ------------------------------------------------------------------
+
+    async def _fetch_municipality_codes(
+        self,
+        prefecture_code: str,
+        client: httpx.AsyncClient,
+    ) -> list[str]:
+        """Fetch available municipality codes for a prefecture from the areas page.
+
+        Returns a list of gyosei_cd values (e.g. ['13308']) for municipalities
+        that have akiya bank listings.
+        """
+        url = (
+            f"{self.base_url}/bukken/search/areas/"
+            f"?search_type=area&br_kbn=buy&sbt_kbn=house"
+            f"&pref_cd={prefecture_code}"
+        )
+
+        logger.info(
+            "Fetching akiya municipality codes",
+            url=url,
+            prefecture=prefecture_code,
+        )
+
+        try:
+            response = await client.get(url)
+            response.raise_for_status()
+        except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+            logger.warning("Failed to fetch municipality codes", error=str(exc))
+            return []
+
+        soup = BeautifulSoup(response.text, "html.parser")
+        codes: list[str] = []
+        for checkbox in soup.select("input[name='gyosei_cd[]']"):
+            value = checkbox.get("value")
+            if value and isinstance(value, str):
+                codes.append(value)
+
+        logger.info(
+            "Found municipality codes",
+            count=len(codes),
+            codes=codes[:10],
+        )
+        return codes
 
     # ------------------------------------------------------------------
     # search_listings
@@ -258,22 +323,43 @@ class AkiyaScraper(AbstractScraper):
     async def search_listings(self, params: SearchParams) -> list[RawListing]:
         """Search akiya-athome for listings matching *params*.
 
-        Paginates through up to ``params.max_pages`` pages, sleeping
-        ``crawl_delay_seconds`` between each HTTP request.
+        Flow:
+        1. Fetch available municipality codes for the prefecture
+        2. Build search URL with all municipality codes
+        3. Paginate through results with crawl delay
         """
         listings: list[RawListing] = []
+        prefecture_code = (params.prefecture_code or "13").zfill(2)
 
         async with httpx.AsyncClient(
             headers=_DEFAULT_HEADERS,
             follow_redirects=True,
             timeout=httpx.Timeout(30.0),
         ) as client:
+            # Step 1: Discover municipality codes that have listings
+            municipality_codes = await self._fetch_municipality_codes(
+                prefecture_code, client
+            )
+
+            if not municipality_codes:
+                logger.warning(
+                    "No municipality codes found, trying without",
+                    prefecture=prefecture_code,
+                )
+
+            await self._delay()
+
+            # Step 2: Paginate through search results
             for page_num in range(1, params.max_pages + 1):
-                url = self._build_search_url(params, page_num)
+                url = self._build_search_url(
+                    params,
+                    municipality_codes or None,
+                    page_num,
+                )
                 logger.info(
                     "Fetching akiya search page",
                     page=page_num,
-                    url=url,
+                    url=url[:200],
                 )
 
                 try:
@@ -284,14 +370,14 @@ class AkiyaScraper(AbstractScraper):
                         "HTTP error on search page",
                         page=page_num,
                         status=exc.response.status_code,
-                        url=url,
+                        url=url[:200],
                     )
                     break
                 except httpx.RequestError as exc:
                     logger.error(
                         "Request error on search page",
                         page=page_num,
-                        url=url,
+                        url=url[:200],
                         error=str(exc),
                     )
                     break
@@ -335,24 +421,28 @@ class AkiyaScraper(AbstractScraper):
         """Return True if the search-results page has a 'next page' link."""
         soup = BeautifulSoup(html, "html.parser")
 
-        # Multiple selector strategies for different page layouts
-        # 1. Explicit "次へ" (next) link text
+        # 1. Pager container with links (2026 layout uses <div class="pager cf">)
+        pager = soup.select_one(".pager")
+        if pager:
+            links = pager.select("a[href]")
+            if links:
+                return True
+
+        # 2. Explicit "次へ" (next) link text
         for a_tag in soup.select("a"):
             link_text = a_tag.get_text(strip=True)
             if link_text in ("次へ", "次のページ", "次ページ", "next", ">", ">>", "›"):
                 return True
 
-        # 2. rel="next" link
+        # 3. rel="next" link
         if soup.select_one("a[rel='next']"):
             return True
 
-        # 3. Pagination container with a link beyond current page
-        for selector in [".pagination", ".pager", ".page-nav", "[class*='paginat']",
+        # 4. Pagination container with a link beyond current page
+        for selector in [".pagination", ".page-nav", "[class*='paginat']",
                          "nav[aria-label*='page']", "ul.page-numbers"]:
             pagination = soup.select_one(selector)
             if pagination:
-                # If the container has more than one page link, assume there
-                # *may* be a next page.  This is a conservative heuristic.
                 page_links = pagination.select("a[href]")
                 if len(page_links) >= 1:
                     return True
@@ -396,38 +486,34 @@ class AkiyaScraper(AbstractScraper):
         soup = BeautifulSoup(html, "html.parser")
         listings: list[RawListing] = []
 
-        # Strategy 1: akiya-athome uses article/card containers
-        property_cards: list[Tag] = (
-            soup.select("article.property-item")
-            or soup.select(".akiya-item")
-            or soup.select(".property-card")
-            or soup.select(".bukken-list li")
-            or soup.select(".property_unit")
-            or soup.select("[class*='property']")
-            or soup.select("[class*='bukken']")
-        )
+        # 2026 layout: <section class="propety"> (note the typo in their HTML)
+        property_cards: list[Tag] = soup.select("section.propety")
 
-        # Strategy 2: find links to detail pages and walk up to the card
+        # Fallback: older selectors
+        if not property_cards:
+            property_cards = (
+                soup.select("article.property-item")
+                or soup.select(".akiya-item")
+                or soup.select(".property-card")
+                or soup.select(".bukken-list li")
+                or soup.select(".property_unit")
+            )
+
+        # Fallback: find links to detail pages on municipality subdomains
         if not property_cards:
             seen: set[int] = set()
-            for link in soup.select("a[href*='/buy/detail/']"):
+            for link in soup.select("a[href*='/bukken/detail/buy/']"):
                 parent = link.find_parent(
-                    ["article", "div", "li", "section", "tr"]
+                    ["section", "article", "div", "li", "tr"]
                 )
                 if parent and id(parent) not in seen:
                     seen.add(id(parent))
                     property_cards.append(parent)  # type: ignore[arg-type]
 
-        # Strategy 3: broader fallback -- any link that looks like a listing
+        # Legacy fallback: old-style detail links
         if not property_cards:
             seen = set()
-            for link in soup.select("a[href*='/buy/']"):
-                href = link.get("href", "")
-                if isinstance(href, list):
-                    href = href[0]
-                # Skip navigation / category links
-                if re.search(r"/buy/\d{2}/?(\?|$)", href):
-                    continue
+            for link in soup.select("a[href*='/buy/detail/']"):
                 parent = link.find_parent(
                     ["article", "div", "li", "section", "tr"]
                 )
@@ -456,12 +542,21 @@ class AkiyaScraper(AbstractScraper):
         card: Tag,
         prefecture_code: str | None = None,
     ) -> RawListing | None:
-        """Parse a single property card from search results into a RawListing."""
+        """Parse a single property card from search results into a RawListing.
+
+        2026 card structure uses <section class="propety"> with:
+        - .propetyTitle a  -> title + detail URL
+        - dl.price dd      -> price
+        - dt/dd pairs      -> property details (area, floor plan, address, etc.)
+        - .imageOuter img  -> thumbnail image
+        """
 
         # ----- Detail-page URL -----
         link_el = (
-            card.select_one("a[href*='/buy/detail/']")
-            or card.select_one("a[href*='/buy/']")
+            card.select_one("a[href*='/bukken/detail/buy/']")
+            or card.select_one("a[href*='/buy/detail/']")
+            or card.select_one(".propetyTitle a")
+            or card.select_one("a.sp")
             or card.select_one("a[href]")
         )
         if not link_el:
@@ -472,46 +567,63 @@ class AkiyaScraper(AbstractScraper):
             href = href[0]
         if not href:
             return None
-        if not href.startswith("http"):
+        if href.startswith("//"):
+            href = "https:" + href
+        elif not href.startswith("http"):
             href = urljoin(self.base_url, href)
 
         source_id = _extract_source_id(href)
 
         # ----- Title -----
         title: str | None = None
-        for sel in ["h2", "h3", ".property-title", ".item-title",
-                     "[class*='title']", "a"]:
-            el = card.select_one(sel)
-            if el:
-                t = el.get_text(strip=True)
-                if t and len(t) > 2:
-                    title = t
-                    break
+        title_el = card.select_one(".propetyTitle a") or card.select_one(".propetyTitle")
+        if title_el:
+            t = title_el.get_text(strip=True)
+            if t and len(t) > 2:
+                title = t
+        if not title:
+            for sel in ["h2", "h3", ".property-title", ".item-title",
+                         "[class*='title']", "a"]:
+                el = card.select_one(sel)
+                if el:
+                    t = el.get_text(strip=True)
+                    if t and len(t) > 2:
+                        title = t
+                        break
 
         # ----- Price -----
         price: int | None = None
-        for sel in [".price", "[class*='price']", ".kakaku",
-                    "[class*='kakaku']", "span.value", ".property-price"]:
-            el = card.select_one(sel)
-            if el:
-                price = _parse_price(el.get_text(strip=True))
-                if price is not None:
-                    break
+        # 2026 layout: <dl class="price"><dd><span>430</span>万円</dd>
+        price_el = card.select_one("dl.price dd")
+        if price_el:
+            price = _parse_price(price_el.get_text(strip=True))
+        if price is None:
+            for sel in [".price", "[class*='price']", ".kakaku",
+                        "[class*='kakaku']", "span.value", ".property-price"]:
+                el = card.select_one(sel)
+                if el:
+                    price = _parse_price(el.get_text(strip=True))
+                    if price is not None:
+                        break
         # Fallback: search full card text for price patterns
         if price is None:
             card_text = card.get_text()
             price = _parse_price(card_text)
 
+        # ----- Raw key/value data from dt/dd lists -----
+        raw_data = self._extract_raw_data(card)
+
         # ----- Address -----
-        address: str | None = None
-        for sel in [".address", "[class*='address']", "[class*='location']",
-                    ".area", "[class*='area']"]:
-            el = card.select_one(sel)
-            if el:
-                t = el.get_text(strip=True)
-                if re.search(r"[都道府県市区町村郡]", t):
-                    address = t
-                    break
+        address: str | None = raw_data.get("所在地") or raw_data.get("住所")
+        if not address:
+            for sel in [".address", "[class*='address']", "[class*='location']",
+                        ".area", "[class*='area']"]:
+                el = card.select_one(sel)
+                if el:
+                    t = el.get_text(strip=True)
+                    if re.search(r"[都道府県市区町村郡]", t):
+                        address = t
+                        break
         # Fallback: scan all text nodes for something that looks like an address
         if not address:
             for el in card.find_all(["span", "p", "div", "dd", "td"]):
@@ -519,9 +631,6 @@ class AkiyaScraper(AbstractScraper):
                 if re.search(r"[都道府県].*[市区町村郡]", t) and len(t) < 100:
                     address = t
                     break
-
-        # ----- Raw key/value data from tables or dl lists -----
-        raw_data = self._extract_raw_data(card)
 
         # ----- Land / building area -----
         land_area: float | None = None
@@ -541,11 +650,7 @@ class AkiyaScraper(AbstractScraper):
                     building_area = _parse_area(t)
 
         # ----- Floor plan (間取り) -----
-        floor_plan: str | None = None
-        for key, value in raw_data.items():
-            if "間取" in key:
-                floor_plan = value.strip()
-                break
+        floor_plan: str | None = raw_data.get("間取り") or raw_data.get("間取")
         if not floor_plan:
             plan_match = re.search(
                 r"\d+\s*[SLDK]+(?:\s*[+＋]\s*S)?",
@@ -561,6 +666,22 @@ class AkiyaScraper(AbstractScraper):
                 year_built = _parse_year(value)
                 if year_built:
                     break
+
+        # ----- Images from card -----
+        image_urls: list[str] = []
+        for img in card.select("img"):
+            src = img.get("data-src") or img.get("src")
+            if isinstance(src, list):
+                src = src[0]
+            if src and isinstance(src, str):
+                if src.startswith("//"):
+                    src = "https:" + src
+                elif not src.startswith("http"):
+                    src = urljoin(self.base_url, src)
+                if any(skip in src for skip in ("icon", "logo", "spacer", "blank", "noimage")):
+                    continue
+                if src not in image_urls:
+                    image_urls.append(src)
 
         # ----- Prefecture / municipality from address -----
         prefecture: str | None = None
@@ -588,6 +709,7 @@ class AkiyaScraper(AbstractScraper):
             building_area_sqm=building_area,
             floor_plan=floor_plan,
             year_built=year_built,
+            image_urls=image_urls[:20],
             raw_data=raw_data,
         )
 
@@ -717,7 +839,8 @@ class AkiyaScraper(AbstractScraper):
                     break
         # Fallback: class-based price element
         if price is None:
-            for sel in [".price", "[class*='price']", ".kakaku"]:
+            for sel in [".price", "[class*='price']", ".kakaku",
+                        ".price-red-strong"]:
                 el = soup.select_one(sel)
                 if el:
                     price = _parse_price(el.get_text(strip=True))
@@ -851,21 +974,51 @@ class AkiyaScraper(AbstractScraper):
 
         # ---- Images ----
         image_urls: list[str] = []
-        for img in soup.select(
-            "img[src*='akiya'], img[src*='property'], img[src*='photo'], "
-            "img[src*='image'], img[src*='bukken'], img[data-src]"
-        ):
-            src = img.get("data-src") or img.get("src")
-            if isinstance(src, list):
-                src = src[0]
-            if src and isinstance(src, str):
-                if not src.startswith("http"):
-                    src = urljoin(self.base_url, src)
-                # Skip tiny icons / spacer images
-                if any(skip in src for skip in ("icon", "logo", "spacer", "blank", "noimage")):
-                    continue
-                if src not in image_urls:
-                    image_urls.append(src)
+
+        # 2026: images may be in a JavaScript variable (carousel data)
+        for script in soup.select("script"):
+            script_text = script.string or ""
+            img_match = re.search(
+                r'image_tile_carousel_image_s\s*=\s*(\[.*?\])',
+                script_text,
+                re.DOTALL,
+            )
+            if img_match:
+                try:
+                    img_data = json.loads(img_match.group(1))
+                    for item in img_data:
+                        if isinstance(item, dict):
+                            full_url = (
+                                item.get("image_url_fullsize")
+                                or item.get("image_url_thumbnail")
+                            )
+                            if full_url:
+                                if full_url.startswith("//"):
+                                    full_url = "https:" + full_url
+                                if full_url not in image_urls:
+                                    image_urls.append(full_url)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+        # Fallback: img tags with relevant src patterns
+        if not image_urls:
+            for img in soup.select(
+                "img[src*='akiya'], img[src*='property'], img[src*='photo'], "
+                "img[src*='image'], img[src*='bukken'], img[data-src]"
+            ):
+                src = img.get("data-src") or img.get("src")
+                if isinstance(src, list):
+                    src = src[0]
+                if src and isinstance(src, str):
+                    if src.startswith("//"):
+                        src = "https:" + src
+                    elif not src.startswith("http"):
+                        src = urljoin(self.base_url, src)
+                    # Skip tiny icons / spacer images
+                    if any(skip in src for skip in ("icon", "logo", "spacer", "blank", "noimage")):
+                        continue
+                    if src not in image_urls:
+                        image_urls.append(src)
 
         # Fallback: grab all reasonably-sized images
         if not image_urls:
@@ -879,7 +1032,9 @@ class AkiyaScraper(AbstractScraper):
                 width = img.get("width", "999")
                 if isinstance(width, str) and width.isdigit() and int(width) < 50:
                     continue
-                if not src.startswith("http"):
+                if src.startswith("//"):
+                    src = "https:" + src
+                elif not src.startswith("http"):
                     src = urljoin(self.base_url, src)
                 if any(skip in src for skip in ("icon", "logo", "spacer", "blank", "noimage")):
                     continue
