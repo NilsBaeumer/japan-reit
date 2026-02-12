@@ -229,12 +229,20 @@ class SuumoScraper(AbstractScraper):
         floor_plan = None
         year_built = None
 
-        for value in raw_data.values():
-            if not land_area:
+        for key, value in raw_data.items():
+            combined = f"{key}{value}"
+            if "土地面積" in combined and not land_area:
                 land_area = self._parse_area(value)
+            elif "建物面積" in combined and not building_area:
+                building_area = self._parse_area(value)
+            elif not land_area and not building_area:
+                # Fallback: first area found = land area
+                area = self._parse_area(value)
+                if area:
+                    land_area = area
             if "LDK" in value or "DK" in value or "K" in value:
                 floor_plan = value.strip()
-            year_match = re.search(r"(\d{4})年", value)
+            year_match = re.search(r"(\d{4})年", combined)
             if year_match and not year_built:
                 year_built = int(year_match.group(1))
 
@@ -367,31 +375,11 @@ class SuumoScraper(AbstractScraper):
         return float(match.group(1)) if match else None
 
     async def scrape_detail(self, listing_url: str) -> RawListing | None:
-        """Scrape a SUUMO detail page for full property information."""
-        from playwright.async_api import async_playwright
-
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            context = await browser.new_context(
-                user_agent=(
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/120.0.0.0 Safari/537.36"
-                ),
-                locale="ja-JP",
-            )
-            pw_page = await context.new_page()
-
-            try:
-                await pw_page.goto(listing_url, wait_until="domcontentloaded", timeout=30000)
-                await pw_page.wait_for_timeout(2000)
-                html = await pw_page.content()
-                return self._parse_detail_page(html, listing_url)
-            except Exception as e:
-                logger.warning("Detail scrape failed", url=listing_url, error=str(e))
-                return None
-            finally:
-                await browser.close()
+        """Skip detail scraping — search cards already have price, address,
+        area, floor plan, and year built.  Detail scraping opens a new Playwright
+        browser per listing (30s delay × 1500 listings = 12+ hours).
+        """
+        return None
 
     def _parse_detail_page(self, html: str, url: str) -> RawListing | None:
         """Parse a SUUMO detail page for complete property data."""
