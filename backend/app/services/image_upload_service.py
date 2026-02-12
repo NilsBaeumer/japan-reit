@@ -77,7 +77,8 @@ class ImageUploadService:
             )
 
             if upload_resp.status_code in (200, 201):
-                # Return the public URL
+                # Return the full public URL — the Next.js app uses storage_path
+                # directly as <img src={storagePath}> with no transformation.
                 public_url = (
                     f"{self.supabase_url}/storage/v1/object/public/"
                     f"{self.bucket}/{storage_path}"
@@ -86,6 +87,7 @@ class ImageUploadService:
                     "Image uploaded",
                     property_id=property_id,
                     path=storage_path,
+                    url=public_url,
                 )
                 return public_url
             else:

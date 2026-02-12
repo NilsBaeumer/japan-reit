@@ -2,6 +2,19 @@
 
 > **Purpose of this document:** This is the single source of truth for the project vision, architecture decisions, and implementation roadmap. Every new chat session should read this file first to understand context.
 
+### Rules for AI Sessions (MUST FOLLOW)
+
+1. **Read this file first.** Before doing anything, read PROJECT_VISION.md to understand what exists and what's next.
+2. **Never start Block X+1 until Block X is verified complete.** Even if the user says "continue with V", first check: is the previous block actually done? Run the site, check the build, verify the feature works. If not, fix it first.
+3. **Update this file after every completed task.** Mark tasks as done with date. Add quality notes. Move status indicators. A future AI must be able to pick up exactly where you left off.
+4. **Remove stale content.** If something is outdated or redundant, delete or condense it. Don't let this file bloat with noise that confuses future sessions.
+5. **Dependencies are hard requirements.** The task order exists for a reason. Don't skip ahead — the foundation must exist before building on top of it.
+6. **Quality gate before moving on.** After finishing a task: does the build pass? Does the feature work visually? Is the UX acceptable? Only then mark it done and proceed.
+7. **Be honest about what's broken.** If a "done" task has known issues, note them clearly with `**Known issues:**` so they get fixed properly.
+8. **Two codebases exist:**
+   - **Next.js consumer app:** `C:\Users\nilsb\Documents\japan-prop-search\` (deployed to Vercel)
+   - **Python scraper microservice:** `C:\Users\nilsb\Documents\Japan Scrapping Tool\backend\` (to be deployed to Vultr)
+
 ---
 
 ## 1. Project Overview
@@ -334,568 +347,587 @@ due_diligence_items (
 > After each task is completed, it gets marked `[x]` with a date and a short quality note.
 > If a task needs revision, it gets a `[!]` flag.
 
-### Current Status: `BLOCK N IN PROGRESS — Market-ready code improvements`
+### Current Status: `BLOCK O IN PROGRESS — Pre-deployment fixes done, awaiting Vultr deploy`
 ### Live URL: `https://japan-prop-search.vercel.app`
+### Reality Check: `~10% toward AkiyaMart-level product`
+
+### Last Session (2026-02-12): Block O Pre-Deployment Prep
+**What was done:**
+- Deep audit of entire Python scraper codebase (5 scrapers, services, models, deployment)
+- Fixed critical bug: added `UniqueConstraint` on `NewPropertyListing(source_id, source_listing_id)` to prevent duplicate listings
+- Fixed security: CORS no longer wildcard `*`, now configurable via `CORS_ORIGINS` env var
+- Added production startup validation: app crashes fast if `DATABASE_URL` or `SCRAPER_API_KEY` missing
+- Updated legacy Celery tasks to use `SupabasePropertyService` (was using old `PropertyService` writing to wrong schema)
+- Removed local PostgreSQL from `docker-compose.prod.yml` — backend connects directly to Supabase
+- Rewrote `deploy.sh` — interactive setup prompts for all Supabase/Translate/Storage credentials
+- Updated all `.env.example` files with complete variable documentation
+- Verified image upload correctly returns full public URL (Next.js uses `storagePath` as `<img src>` directly)
+- All modified files pass syntax validation
+
+**What needs to happen next session (O-01 → O-12):**
+1. `O-01`: Push schema changes from Next.js app (`npm run db:push` in `japan-prop-search/`)
+2. `O-02`: Set admin role on user account via Supabase SQL editor
+3. `O-03–O-06`: SSH to Vultr, `git pull`, run `bash deploy.sh` (interactive — prompts for Supabase URL, service role key, Google Translate key)
+4. `O-07`: Test first scrape: `curl -X POST http://<vultr-ip>/api/scrape/trigger -H 'X-API-Key: <key>' -H 'Content-Type: application/json' -d '{"source_id":"suumo","prefecture_code":"13"}'`
+5. `O-08`: Verify real properties appear on Vercel site (map pins, images, listing detail)
+6. `O-09`: Scale to 1,000+ listings across multiple sources/prefectures
+7. `O-10`: Enable scheduler (`SCHEDULER_ENABLED=true` in `.env.production`, restart)
+8. `O-11`: Set up Google OAuth in Google Cloud Console + Vercel env vars
+9. After O complete → Block P (UI/UX overhaul) can begin in parallel
 
 ---
 
-### BLOCK A — Project Skeleton
-*Everything else depends on this. Must be done first and in order.*
-
-| # | Task | Depends On | Status |
-|---|---|---|---|
-| A-01 | Initialize Next.js 16 project (TypeScript, App Router, TailwindCSS v4, ESLint) | — | `done 2026-02-11` |
-| A-02 | Design system: globals.css with Japanese aesthetic theme (colors, fonts, spacing, shadows, animations as CSS variables), Tailwind v4 @theme tokens | A-01 | `done 2026-02-11` |
-| A-03 | UI component library: 16 Radix UI + Tailwind styled components (Button, Card, Input, Select, Badge, Dialog, Tabs, Accordion, Skeleton, Tooltip, etc.) | A-02 | `done 2026-02-11` |
-| A-04 | Marketing layout: MarketingHeader (sticky, logo, nav, CTA, mobile hamburger) + Footer (4-col grid) + `(marketing)/layout.tsx` | A-03 | `done 2026-02-11` |
-| A-05 | App layout: AppSidebar (icon nav, tooltip, mobile bottom bar) + AppHeader (breadcrumb, search, user dropdown) + `(app)/layout.tsx` | A-03 | `done 2026-02-11` |
-| A-06 | All placeholder pages: 4 marketing (/, /pricing, /faq, /about) + 8 app (/explore, /dashboard, /listing/[id], /wishlists, /alerts, /pipeline, /calculator, /settings) | A-04, A-05 | `done 2026-02-11` |
-
-**A-01 Details:**
-- `npx create-next-app@latest` with: TypeScript, ESLint, Tailwind, App Router, `src/` directory, import alias `@/`
-- Install core deps: `@radix-ui/react-*`, `lucide-react`, `clsx`, `tailwind-merge`, `class-variance-authority`
-- Set up `src/lib/utils.ts` with `cn()` helper (clsx + tailwind-merge)
-- Create `.env.example` with all placeholder variables from Section 13
-- Initialize git repo, first commit
-
-**A-02 Details:**
-- `globals.css`: All CSS variables from Section 6 (colors, shadows, borders)
-- Import Inter font (Google Fonts via `next/font`)
-- TailwindCSS v4: all theme tokens defined via `@theme inline {}` in globals.css (NOT tailwind.config.ts)
-- Base styles: body background, text color, font smoothing
-- Verify: page renders with correct warm off-white background and indigo accent
-
-**A-03 Details:**
-- Install Radix: `dialog`, `dropdown-menu`, `tabs`, `accordion`, `tooltip`, `select`, `checkbox`, `label`, `separator`, `slot`
-- Create `src/components/ui/` with styled wrappers for each (following shadcn/ui pattern)
-- Each component uses the Japanese aesthetic theme variables
-- Components: `button.tsx`, `card.tsx`, `input.tsx`, `select.tsx`, `badge.tsx`, `dialog.tsx`, `tabs.tsx`, `accordion.tsx`, `skeleton.tsx`, `tooltip.tsx`, `separator.tsx`
-
-**A-04 Details:**
-- `src/components/layout/marketing-header.tsx`: Logo (text for now), nav links (Home, Explore, Pricing, FAQ), "Sign In" button
-- `src/components/layout/footer.tsx`: 3-column grid (Product links, Company links, Legal links), copyright
-- `src/app/(marketing)/layout.tsx`: Wraps children with header + footer
-- Responsive: hamburger menu on mobile
-- Style: transparent header with subtle border-bottom, sticky
-
-**A-05 Details:**
-- `src/components/layout/app-sidebar.tsx`: Icon-based vertical nav (Explore, Dashboard, Wishlists, Alerts, Pipeline, Calculator, Settings)
-- `src/components/layout/app-header.tsx`: Breadcrumb, search input, user avatar/menu
-- `src/app/(app)/layout.tsx`: Sidebar + header + content area
-- Responsive: sidebar collapses to bottom tab bar on mobile
-
-**A-06 Details:**
-- `src/app/(marketing)/page.tsx`: "Homepage coming soon" with correct marketing layout
-- `src/app/(app)/explore/page.tsx`: "Explore coming soon" with correct app layout
-- `src/app/(app)/listing/[id]/page.tsx`: "Listing coming soon" with correct app layout
-- Verify: navigation between marketing and app pages works, layouts switch correctly
+### BLOCK A — Project Skeleton ✅ COMPLETE
+**What exists:** Next.js 16.1.6 + React 19 + TailwindCSS v4 (CSS-based config). 17 Radix UI components (shadcn pattern). Marketing layout (header+footer) + App layout (sidebar+header). 13 routes across marketing and app groups. Inter font, cn() utility, .env.example. Build passes clean.
 
 ---
 
-### BLOCK B — Database & Data Layer
-*API routes depend on this. Can start once A-01 is done (no UI dependency).*
-
-| # | Task | Depends On | Status |
-|---|---|---|---|
-| B-01 | Set up Supabase project: create project, enable PostGIS extension, get connection string + keys | A-01 | `BLOCKED — user action needed` |
-| B-02 | Install Drizzle ORM + configure: `drizzle-orm`, `drizzle-kit`, `postgres` driver, `drizzle.config.ts`, db connection utility | B-01 | `done 2026-02-11` |
-| B-03 | Schema: `prefectures` + `municipalities` tables (Drizzle schema + migration) | B-02 | `done 2026-02-11` |
-| B-04 | Schema: `listing_sources` table + seed data (SUUMO, AtHome, Homes, BIT Auction, Akiya Banks with badge colors) | B-02 | `done 2026-02-11` |
-| B-05 | Schema: `properties` table (with lat/lng double precision + indexes) | B-02 | `done 2026-02-11` |
-| B-06 | Schema: `property_listings` table (source tracking, raw data JSON, unique source constraint) | B-05 | `done 2026-02-11` |
-| B-07 | Schema: `property_images` table (Supabase Storage paths) | B-05 | `done 2026-02-11` |
-| B-08 | Schema: `hazard_assessments` table | B-05 | `done 2026-02-11` |
-| B-09 | Schema: `property_scores` table | B-05 | `done 2026-02-11` |
-| B-10 | Seed data: all 47 prefectures + 13 municipalities with bbox coordinates + slugs | B-03 | `done 2026-02-11` |
-| B-11 | Seed data: 60 demo properties with hazard/score data across 10 cities | B-05, B-06, B-07, B-08, B-09 | `done 2026-02-11` |
-| B-12 | Currency conversion utility: `src/lib/currency.ts` (JPY → USD/EUR/GBP/AUD with hardcoded rates) | A-01 | `done 2026-02-11` |
-
-**B-01 Details:**
-- User creates Supabase project manually (free tier) at supabase.com
-- Enable PostGIS via SQL: `CREATE EXTENSION IF NOT EXISTS postgis;`
-- Copy: project URL, anon key, service role key, direct connection string
-- Add to `.env.local` (not committed)
-
-**B-02 Details:**
-- `npm install drizzle-orm postgres` + `npm install -D drizzle-kit`
-- `src/lib/db/index.ts`: connection pool using `postgres` driver + Drizzle wrapper
-- `drizzle.config.ts`: points to DATABASE_URL, schema path, migration output
-- Verify: can connect and run a raw `SELECT 1` query
-
-**B-05 Details (properties table — most important):**
-```typescript
-// Key columns:
-id: serial primaryKey
-address_ja: text
-address_en: text (translated)
-prefecture_code: text (FK → prefectures)
-municipality_code: text (FK → municipalities)
-lat: doublePrecision
-lng: doublePrecision
-location: geometry('Point', 4326) // PostGIS — for bbox queries
-price_jpy: integer
-land_area_sqm: real
-building_area_sqm: real
-floor_plan: text (e.g. "3LDK")
-year_built: integer
-structure: text (wood/rc/steel)
-floors: integer
-land_rights: text (freehold/leasehold)
-road_width_m: real
-rebuild_possible: boolean
-use_zone: text
-coverage_ratio: real
-floor_area_ratio: real
-composite_score: real
-price_per_sqm: real (computed)
-description_ja: text
-description_en: text (translated)
-area_info_en: text
-status: text (active/sold/delisted) default 'active'
-view_count: integer default 0
-created_at: timestamp
-updated_at: timestamp
-```
-
-**B-11 Details:**
-- Create `src/lib/db/seed.ts` script
-- Generate 50-100 properties spread across Tokyo, Osaka, Kyoto, Hokkaido, Okinawa
-- Realistic prices (¥500,000 — ¥15,000,000), areas, years, scores
-- 2-3 images per property (use placeholder image URLs)
-- Some with hazard data, some without
-- Some with multiple listings from different sources (to test source badges)
-- Run via `npx tsx src/lib/db/seed.ts`
+### BLOCK B — Database & Data Layer ✅ COMPLETE
+**What exists:** Drizzle ORM with 17+ tables in `schema.ts` (480 lines). Supabase project created (Tokyo region, project `oeephlppujidspbpujte`). B-01 done. 47 prefectures, 13 municipalities with real bbox, 5 listing sources seeded. 60 demo properties. Currency util: JPY↔USD/EUR/GBP/AUD. Uses lat/lng double precision with composite index (simple range queries, PostGIS can be added later for performance). Lazy DB via Proxy pattern for build safety.
+**PENDING:** Block N schema changes (password_hash, role, contact_submissions) need `db:push` — see Block O-01.
 
 ---
 
-### BLOCK C — Core API Routes
-*Map/Explore page depends on these. Needs database schema from Block B.*
-
-| # | Task | Depends On | Status |
-|---|---|---|---|
-| C-01 | API: `GET /api/prefectures` — list all prefectures; `GET /api/municipalities?prefecture=` — list municipalities | B-03, B-10 | `done 2026-02-11` ✅ |
-| C-02 | API: `GET /api/listings` — bbox search with filters (maxPrice, minPrice, rooms, landRights, structure, minScore), pagination, sort, currency conversion, source badges, thumbnails | B-05, B-11, B-12 | `done 2026-02-11` ✅ |
-| C-03 | API: `GET /api/listings/[id]` — full listing detail with joins (images, hazard, scores, source listings), view count increment | B-05 through B-09 | `done 2026-02-11` ✅ |
-| C-04 | API: `GET /api/places/find?loc=` — location name → bbox lookup from municipalities/prefectures table, return JSON `{ bbox, label }` | B-10 | `done 2026-02-11` ✅ |
-| C-05 | API: `GET /api/listings/geojson` — GeoJSON FeatureCollection for map markers (lightweight: id, lat, lng, price, score, status only) | C-02 | `done 2026-02-11` ✅ |
-
-**Block C Quality Notes (2026-02-11):**
-- Used simple lat/lng range queries instead of PostGIS `ST_MakeEnvelope` (works without PostGIS extension, can optimize later)
-- DB connection made lazy via Proxy pattern so build succeeds without DATABASE_URL
-- All 6 route files build-verified and committed
-- Listings route includes source badges + thumbnail aggregation in single response
-- GeoJSON route capped at 2000 features for performance
-
-**C-02 Details (most complex API route):**
-```
-GET /api/listings?swLat=35.5&swLng=139.5&neLat=35.8&neLng=139.9
-    &maxPrice=10000000&currency=usd&rooms=2&landRights=freehold
-    &sort=price_asc&page=1&limit=50
-```
-- PostGIS query: `WHERE ST_Within(location, ST_MakeEnvelope(swLng, swLat, neLng, neLat, 4326))`
-- Apply all filters
-- Return: `{ items: Listing[], total: number, page: number, bbox: BBox }`
-- Each item includes: id, price (JPY + converted), lat/lng, address, thumbnail, score, source badges
-- Converted price uses currency.ts utility
-
-**C-05 Details:**
-- Lightweight version of C-02 for map rendering
-- Returns GeoJSON FeatureCollection
-- Each Feature: `{ type: "Feature", geometry: { type: "Point", coordinates: [lng, lat] }, properties: { id, price_jpy, composite_score, status } }`
-- Used by MapLibre as data source
+### BLOCK C — Core API Routes ✅ COMPLETE
+**What exists:** 6 API route files. `GET /api/prefectures`, `GET /api/municipalities`, `GET /api/listings` (bbox search + filters + pagination + currency conversion), `GET /api/listings/[id]` (detail + view count), `GET /api/places/find` (location→bbox), `GET /api/listings/geojson` (GeoJSON for map, capped at 2000 features). Simple lat/lng range queries (no PostGIS yet). Listings route includes source badges + thumbnail aggregation.
+**API format:** `GET /api/listings?swLat=&swLng=&neLat=&neLng=&maxPrice=&currency=&rooms=&landRights=&sort=&page=&limit=`
 
 ---
 
-### BLOCK D — Map Explore Page
-*The core app experience. Needs API routes from Block C and UI components from Block A.*
-
-| # | Task | Depends On | Status |
-|---|---|---|---|
-| D-01 | Install MapLibre GL JS + react-map-gl, create base `<Map>` component with OSM raster tiles, center on Japan | A-03, C-05 | `done 2026-02-11` ✅ |
-| D-02 | Explore page layout: full-screen map (70% width) + sidebar panel (30% width), responsive breakpoints | D-01, A-05 | `done 2026-02-11` ✅ |
-| D-03 | Bounding-box data fetching: on map `moveend`, extract viewport bbox → call `/api/listings` → update state | D-02, C-02 | `done 2026-02-11` ✅ |
-| D-04 | URL state sync: read/write bbox + filters to URL query params using `useSearchParams`, debounced URL updates | D-03 | `done 2026-02-11` ✅ |
-| D-05 | Property markers: render GeoJSON source on map, clustered via MapLibre cluster options, color by price tier | D-03 | `done 2026-02-11` ✅ |
-| D-06 | Marker popups: click marker → show mini property card (price, score, link) | D-05 | `done 2026-02-11` ✅ |
-| D-07 | Sidebar property list: scrollable list of PropertyCard components, synced with map data | D-03, A-03 | `done 2026-02-11` ✅ |
-| D-08 | Filter panel: collapsible panel — currency, sort, price range, rooms, land rights, structure, min score | D-04, A-03 | `done 2026-02-11` ✅ |
-| D-09 | Currency selector: integrated into filter panel (JPY/USD/EUR/GBP/AUD) | D-04, B-12 | `done 2026-02-11` ✅ |
-| D-10 | `/find` route: `GET /find?loc=Kyoto` → server-side → lookup bbox → redirect to `/explore?swLat=...` | C-04 | `done 2026-02-11` ✅ |
-| D-11 | "Search this area" button: appears when map moves from last search bbox | D-03 | `done 2026-02-11` ✅ |
-| D-12 | Map-list interaction: hover card → highlight marker ring, hover marker → highlight card border | D-06, D-07 | `done 2026-02-11` ✅ |
-| D-13 | Explore mobile: map full screen, property list as pull-up bottom sheet | D-02 through D-09 | `done 2026-02-11` ✅ |
-| D-14 | Empty states & loading: skeleton cards while loading, "No properties" message, map loading indicator | D-07 | `done 2026-02-11` ✅ |
-
-**Block D Quality Notes (2026-02-11):**
-- MapLibre loaded via `next/dynamic` with `ssr: false` to avoid SSR issues
-- useExplore hook manages all state: bbox, filters, URL sync, pagination, fetching
-- Marker colors: green(<3M), blue(3-10M), amber(10-30M), red(>30M) — with price legend overlay
-- Cluster support via MapLibre cluster options (max zoom 14, radius 50)
-- Mobile bottom sheet is simplified (no drag gestures yet, uses click toggle)
-- LocationSearch component calls /api/places/find for city/prefecture lookup
-
-**D-01 Details:**
-- `npm install maplibre-gl react-map-gl`
-- `src/components/map/base-map.tsx`: wrapper around react-map-gl `<Map>` with OSM tiles
-- Tile URL: `https://tile.openstreetmap.org/{z}/{x}/{y}.png` (or a vector style like MapTiler free)
-- Default view: center on Japan `[137.0, 38.0]`, zoom 5
-- Style: add attribution, disable rotation (simpler UX)
-
-**D-07 Details (PropertyCard component):**
-- `src/components/property/property-card.tsx`
-- Shows: thumbnail image, price (formatted with currency), address, land/building area, year built, score badge, source badge dots
-- Hover: subtle elevation change
-- Click: navigates to `/listing/[id]`
-- Compact variant for sidebar list
+### BLOCK D — Map Explore Page ✅ COMPLETE
+**What exists:** Full MapLibre GL + react-map-gl map (70% width) + sidebar (30%). `useExplore` hook manages all state: bbox, filters, URL sync, pagination, fetching. Clustered markers color-coded by price (green <3M, blue 3-10M, amber 10-30M, red >30M). Click popups. Filter panel (currency, sort, price range, rooms, land rights, structure, min score). LocationSearch via /api/places/find. Mobile bottom sheet. "Search this area" button. Map-list hover interaction.
+**Known issues (to fix in Block P):** Plain OSM tiles (ugly), generic circle markers, mobile bottom sheet simplified (no drag).
 
 ---
 
-### BLOCK E — Listing Detail Page
-*Needs API route C-03 and UI components from Block A.*
-
-| # | Task | Depends On | Status |
-|---|---|---|---|
-| E-01 | Listing detail page: server component layout + client detail component | C-03, A-03 | `done 2026-02-11` ✅ |
-| E-02 | Image gallery: grid layout + lightbox with keyboard nav (Escape/Arrow keys) | E-01 | `done 2026-02-11` ✅ |
-| E-03 | Property facts grid: 12-cell grid (price, area, plan, year, structure, rights, road, rebuild, ratios) | E-01 | `done 2026-02-11` ✅ |
-| E-04 | Hazard assessment panel: 5 risk categories with color-coded badges | E-01 | `done 2026-02-11` ✅ |
-| E-05 | Score breakdown: Recharts RadarChart with 6 dimensions + composite badge | E-01 | `done 2026-02-11` ✅ |
-| E-06 | Source badges: clickable pills linking to original portals | E-01 | `done 2026-02-11` ✅ |
-| E-07 | Description + Area Info tabs | E-01 | `done 2026-02-11` ✅ |
-| E-08 | Mini map: MapLibre map with property pin | E-01, D-01 | `done 2026-02-11` ✅ |
-| E-09 | Similar properties: placeholder (needs runtime data, will implement in polish) | E-01, C-02 | `deferred` |
-| E-10 | Action bar: currency selector, share (copy URL), save button (wishlist placeholder) | E-01 | `done 2026-02-11` ✅ |
-| E-11 | SEO metadata: dynamic OG meta + JSON-LD RealEstateListing structured data | E-01 | `done 2026-02-11` ✅ |
-
-**Block E Quality Notes (2026-02-11):**
-- Server component fetches data via internal API, client component handles interactivity
-- Recharts RadarChart renders 6-dimension spider with indigo theme
-- Image gallery: responsive grid (1/2/4 cols based on count), lightbox with keyboard + click nav
-- E-09 (Similar Properties) deferred — needs live DB to query similar listings
-
-**E-03 Details (facts grid):**
-```
-┌─────────────┬─────────────┬─────────────┐
-│ Price       │ Land Area   │ Building    │
-│ ¥6,000,000  │ 190 m²      │ 41.49 m²   │
-│ ($38,390)   │             │             │
-├─────────────┼─────────────┼─────────────┤
-│ Year Built  │ Floor Plan  │ Structure   │
-│ 2001        │ 2LDK       │ Wood        │
-├─────────────┼─────────────┼─────────────┤
-│ Land Rights │ Road Width  │ Rebuild OK? │
-│ Freehold    │ 4.0m       │ Yes ✓       │
-└─────────────┴─────────────┴─────────────┘
-```
+### BLOCK E — Listing Detail Page ✅ COMPLETE
+**What exists:** Server→client component split. Image gallery with lightbox + keyboard nav. 9-cell facts grid. Hazard panel (5 risk categories, color-coded). Recharts RadarChart (6-dimension scores). Source badges. Description/Area Info tabs. Mini map. Currency selector. SEO metadata + JSON-LD. Similar properties (N-10).
+**Known issues (to fix in Block Q):** No hero image section, price not prominent enough, no sticky mobile CTA bar.
 
 ---
 
-### BLOCK F — Marketing & SEO Pages
-*Needs UI components from Block A and some API routes from Block C.*
-
-| # | Task | Depends On | Status |
-|---|---|---|---|
-| F-01 | Homepage: hero + "How It Works" 3-step + 6-feature grid + pricing preview (3 tiers) + final CTA | A-04, A-03 | `done 2026-02-11` ✅ |
-| F-02 | Pricing page: 3-tier comparison with feature checklists + FAQ accordion | A-03, A-04 | `done 2026-02-11` ✅ |
-| F-03 | FAQ page: 16 questions across 4 categories with accordions | A-03, A-04 | `done 2026-02-11` ✅ |
-| F-04 | City landing pages `/city/[slug]` | A-03, C-05, B-10 | `deferred` (needs DB) |
-| F-05 | Prefecture landing pages `/prefecture/[slug]` | F-04 | `deferred` (needs DB) |
-| F-06 | Static generation with ISR | F-04, F-05 | `deferred` (needs DB) |
-| F-07 | SEO: robots.ts + sitemap.ts (static pages now, dynamic URLs ready for DB) | F-06 | `done 2026-02-11` ✅ |
-| F-08 | About page: mission, differentiators, technology overview | A-04 | `done 2026-02-11` ✅ |
-| F-09 | Contact page | A-04, A-03 | `deferred` |
-
-**Block F Quality Notes (2026-02-11):**
-- Homepage has 5 sections: hero, how it works, features, pricing preview, CTA
-- All pages have Metadata exports (title, description)
-- F-04/F-05/F-06 deferred — need live DB to generate static city/prefecture pages
-- F-09 deferred — contact form needs backend (email service or DB store)
-
-**F-01 Details (Homepage — most important marketing page):**
-- Hero: large full-width section, warm image of Japanese town/countryside, overlay text: "Discover Your Japanese Property", subtitle: "Search thousands of akiya listings across Japan with translated details, hazard data, and investment scoring.", CTA: "Start Exploring" → `/explore`
-- How it Works: 3 cards (Search → Analyze → Invest)
-- Features: 6-card grid (Map Search, Hazard Data, Investment Scoring, Multi-Source, Wishlists & Alerts, Deal Pipeline)
-- Pricing preview: 3 compact tier cards with price + top 3 features
-- Visual style: lots of whitespace, subtle animations on scroll, warm tones
-
-**F-04 Details (City landing pages — SEO powerhouse):**
-- Route: `/city/tokyo`, `/city/kyoto`, `/city/osaka`, etc.
-- Server component: fetch city data + teaser listings at build time
-- Hero: city-specific image (Supabase Storage or Unsplash), city name overlay
-- Stats bar: "2,340 listings | Avg. ¥3.2M | Population: 13.9M"
-- Teaser listings: grid of 6-12 PropertyCards
-- CTA: "Search all properties in Tokyo →" links to `/explore?swLat=...&neLat=...`
-- Internal links: "Nearby prefectures: ..."
+### BLOCK F — Marketing & SEO Pages ⚠️ PARTIAL
+**Done:** Homepage (5 sections: hero, how it works, features, pricing preview, CTA). Pricing (3 tiers). FAQ (16 questions). About page. Contact page (N-11). robots.ts + sitemap.ts (dynamic with property URLs).
+**Deferred (→ Block R):** F-04 city landing pages, F-05 prefecture landing pages, F-06 ISR static generation — all need real data in DB first.
 
 ---
 
-### BLOCK G — Authentication & User System
-*Needs database schema for users/subscriptions. Independent of UI blocks D-F.*
-
-| # | Task | Depends On | Status |
-|---|---|---|---|
-| G-01 | Schema: NextAuth.js tables (already in B-02 schema) | B-02 | `done 2026-02-11` ✅ |
-| G-02 | Schema: `subscriptions` table (already in B-02 schema) | G-01 | `done 2026-02-11` ✅ |
-| G-03 | NextAuth.js config: Drizzle adapter, Google OAuth + credentials, JWT sessions, auto-create subscription | G-01 | `done 2026-02-11` ✅ |
-| G-04 | Auth API route: `src/app/api/auth/[...nextauth]/route.ts` | G-03 | `done 2026-02-11` ✅ |
-| G-05 | Sign-in page: Google OAuth + email/password, Japanese aesthetic | G-04, A-03 | `done 2026-02-11` ✅ |
-| G-06 | Sign-up page: Google OAuth + name/email/password, auto-create user in beta | G-04, G-02, A-03 | `done 2026-02-11` ✅ |
-| G-07 | Auth middleware: protects 6 private routes | G-04 | `done 2026-02-11` ✅ |
-| G-08 | User menu: session-aware avatar + dropdown in AppHeader + MarketingHeader | G-04, A-05 | `done 2026-02-11` ✅ |
-| G-09 | Settings page: profile form, subscription info, danger zone | G-04, G-02, A-05 | `done 2026-02-11` ✅ |
-| G-10 | Feature gate: `canAccess(plan, feature)`, all free in FREE_MODE | G-02 | `done 2026-02-11` ✅ |
-| G-11 | Subscription activation (deferred — pricing CTA links to /explore for now) | G-06, G-10, F-02 | `deferred` |
-| G-12 | API: `GET /api/me` — user profile + subscription | G-04, G-02 | `done 2026-02-11` ✅ |
-
-**Block G Quality Notes (2026-02-11):**
-- NextAuth.js v5 beta with JWT session strategy
-- Credentials provider auto-creates users in FREE_MODE (beta)
-- getDbOrDummy() solves build-time DrizzleAdapter initialization without DATABASE_URL
-- SessionProvider wraps entire app tree in root layout
-- Both MarketingHeader and AppHeader are session-aware
+### BLOCK G — Authentication & User System ⚠️ PARTIAL
+**Done:** NextAuth.js v5 beta, JWT sessions, Google OAuth + Credentials providers, auto-create users in FREE_MODE. getDbOrDummy() for build safety. Auth middleware protects 6 routes. Settings page (profile save, account deletion). `canAccess(plan, feature)` gate (always true in FREE_MODE). Admin role with 403 enforcement (N-09). Bcrypt password hashing (N-08).
+**Deferred (→ Block T):** G-11 Stripe subscription activation. Google OAuth not yet configured in production (needs Google Cloud Console setup — see Block O-11).
 
 ---
 
-### BLOCK H — Wishlists & Alerts
-*Needs auth system from Block G and listing pages from Blocks D-E.*
-
-| # | Task | Depends On | Status |
-|---|---|---|---|
-| H-01 | Schema: `wishlists` + `wishlist_items` tables | B-02, G-01 | `done` |
-| H-02 | Schema: `alerts` table (saved search queries) | B-02, G-01 | `done` |
-| H-03 | API: `CRUD /api/wishlists` — create list, get lists, add/remove item, delete list | H-01, G-04 | `done` |
-| H-04 | API: `CRUD /api/alerts` — create alert, get alerts, update frequency, delete | H-02, G-04 | `done` |
-| H-05 | Wishlists page: grid of wishlist cards, click to expand → list of PropertyCards, create new wishlist dialog | H-03, A-05, D-07 | `done` |
-| H-06 | Heart button integration: add heart icon to PropertyCard + listing detail, click toggles wishlist membership, select which wishlist via dropdown | H-03, D-07, E-10 | `done` |
-| H-07 | Alerts page: list of saved searches with query summary, frequency selector, pause/resume toggle, delete | H-04, A-05 | `done` |
-| H-08 | "Save this search" button on Explore page: captures current bbox + filters → create alert dialog (name, frequency) | H-04, D-08 | `done` |
-| H-09 | Alert email worker: cron job (or Supabase Edge Function) — check each active alert, find new listings matching query, send email digest | H-04, C-02 | `deferred` |
-| H-10 | Email template: React Email template for alert digest (new listings summary, link to explore) | H-09 | `deferred` |
-
-**Block H Quality Notes (2026-02-11):**
-- Wishlists CRUD: create/list/delete wishlists, add/remove items, check which wishlists contain a property
-- WishlistButton component has two variants: `icon` (heart on PropertyCard thumbnails) and `labeled` (full button on listing detail)
-- Wishlists check API (`/api/wishlists/check?propertyId=`) returns array of wishlist IDs containing the property
-- Alerts API uses `queryJson` field name (matches Drizzle schema `jsonb("query_json")`) — **not** `query`
-- "Save this search" on Explore captures current bbox + filters, creates alert with name/frequency dialog
-- Wishlist detail page at `/wishlists/[id]` shows items with thumbnails, scores, remove action
-- H-09/H-10 deferred — email worker needs Resend/SendGrid setup
+### BLOCK H — Wishlists & Alerts ⚠️ PARTIAL
+**Done:** Full CRUD wishlists + alerts. WishlistButton (icon/labeled variants). `/api/wishlists/check?propertyId=` for membership. "Save this search" on Explore. Wishlist detail page.
+**Key detail:** Alerts API uses `queryJson` field name (matches Drizzle schema `jsonb("query_json")`) — NOT `query`.
+**Deferred (→ Block S):** H-09/H-10 alert email worker + template — needs email provider setup.
 
 ---
 
-### BLOCK I — Deal Pipeline & Financial Tools
-*Premium features. Needs auth from Block G. Ported from old Python app.*
-
-| # | Task | Depends On | Status |
-|---|---|---|---|
-| I-01 | Schema: `deals` + `due_diligence_items` tables | B-02, G-01 | `done` |
-| I-02 | Port financial calculator logic from Python → TypeScript: `src/lib/financial.ts` (broker fee, stamp tax, registration tax, acquisition tax) | A-01 | `done` |
-| I-03 | Port scoring engine from Python → TypeScript: `src/lib/scoring.ts` (6-dimension model with weights) | A-01 | `done` |
-| I-04 | API: `CRUD /api/deals` — create deal from listing, update stage, update costs, delete | I-01, G-04 | `done` |
-| I-05 | API: `POST /api/financial/calculate` — accept price + land/building split → return full cost breakdown | I-02, G-04 | `done` |
-| I-06 | Pipeline page: Kanban board with draggable deal cards across stage columns, deal detail modal | I-04, A-05 | `done` |
-| I-07 | Due diligence checklist: expandable checklist per deal, add/complete/delete items, category grouping | I-04, I-06 | `done` |
-| I-08 | Financial calculator page: interactive form (price input, sliders for land/building split), real-time cost breakdown table, total summary | I-05, A-05 | `done` |
-| I-09 | "Start a Deal" button on listing detail: creates deal linked to property, opens pipeline | I-04, E-10 | `done` |
-| I-10 | Export: download deals as CSV or Excel file | I-04 | `done` |
-
-**Block I Quality Notes (2026-02-11):**
-- Financial calculator ported from Python `financial_service.py` (290 lines) with all Japanese tax rules:
-  - Broker commission with standard tiers + low-price rule (<=8M → max 330,000)
-  - Stamp tax with reduced rates through 2027-03-31
-  - Registration tax: land 1.5% reduced through 2026-03-31, building 2.0%
-  - Acquisition tax: land x1/2 x3%, building 3%
-  - Annual holding cost: fixed asset 1.4% + city planning 0.3%
-  - Capital gains tax: short-term 39.63% (<=5yr), long-term 20.315%
-  - ROI projection with buy-renovate-sell scenario and breakeven month calculation
-- Scoring engine ported from Python `scoring_engine.py` (200 lines), 6 dimensions:
-  - rebuild(25%), hazard(20%), infrastructure(15%), demographic(15%), value(15%), condition(10%)
-  - Constants: DEFAULT_WEIGHTS, SCORING_VERSION "1.0", RESIDENTIAL_ZONES/COMMERCIAL_ZONES sets
-- Pipeline Kanban has 6 stages: discovery → analysis → offer → due_diligence → closing → completed
-  - Stage navigation via arrow buttons on card hover
-  - Detail dialog with categorized due diligence checklist (add/toggle/delete items)
-  - CSV export via `/api/deals/export`
-- Calculator page: toggle between "Purchase Costs" and "ROI Projection" modes with real-time results
-- "Start Deal" button on listing detail creates deal and redirects to /pipeline
-- Python source files read from: `C:\Users\nilsb\Documents\Japan Scrapping Tool\backend\app\services\`
+### BLOCK I — Deal Pipeline & Financial Tools ✅ COMPLETE
+**What exists:** Financial calculator (`src/lib/financial.ts`, 290 lines) with all Japanese tax rules: broker commission (standard + low-price rule), stamp tax (reduced rates through 2027-03), registration tax, acquisition tax, holding costs (fixed asset 1.4% + city planning 0.3%), capital gains tax (short-term 39.63% / long-term 20.315%), ROI projection with breakeven calculation.
+Scoring engine (`src/lib/scoring.ts`, 200 lines): 6 dimensions — rebuild(25%), hazard(20%), infrastructure(15%), demographic(15%), value(15%), condition(10%).
+Pipeline Kanban: 6 stages (discovery → analysis → offer → due_diligence → closing → completed). Due diligence checklist (categorized). CSV export. "Start Deal" on listing detail.
 
 ---
 
-### BLOCK J — Polish, Performance & Launch Readiness
-*Final refinement. Depends on all feature blocks being at least functional.*
+### BLOCK J — Polish, Performance & Launch Readiness ✅ COMPLETE
+**What exists:** Error boundaries, skeleton loaders, 404/500 pages. next.config.ts with image optimization (avif/webp, Supabase remote patterns), security headers, caching (marketing s-maxage=86400, API s-maxage=60). GA4 analytics (conditional on NEXT_PUBLIC_GA_ID). Cookie consent banner. Input validation utilities. Privacy policy + terms of service. Accessibility (skip-to-content, ARIA labels).
+**Known issues (found in Block P audit):** Color contrast fails WCAG AA (muted-foreground at 40% lightness = 3.8:1, needs 4.5:1). Mobile nav incomplete. Typography hierarchy flat.
+---
 
-| # | Task | Depends On | Status |
-|---|---|---|---|
-| J-01 | Error boundaries: React error boundaries around map, listings, and major sections with fallback UI | D-02, E-01 | `done` |
-| J-02 | Loading states: Skeleton components for PropertyCard, listing detail, sidebar, dashboard | A-03 | `done` |
-| J-03 | 404 page + 500 error page: on-brand, with navigation back to home/explore | A-04 | `done` |
-| J-04 | Performance: Next.js Image optimization for all images, lazy load below-fold content, dynamic imports for MapLibre (no SSR) | D-01, E-02 | `done` |
-| J-05 | Caching strategy: ISR for SEO pages (revalidate 24h), API route caching headers, TanStack Query stale times | F-06, C-02 | `done` |
-| J-06 | Mobile responsive audit: test all pages on 375px/414px/768px, fix layout breaks | All UI blocks | `done` |
-| J-07 | Analytics: add Google Analytics 4 or Plausible, page view tracking, key events (search, view listing, signup) | A-01 | `done` |
-| J-08 | Security: rate limiting on API routes (via middleware), input sanitization (Zod), CSP headers in `next.config.ts` | C-02 | `done` |
-| J-09 | Accessibility: keyboard navigation audit, focus management, ARIA labels, color contrast check (WCAG AA) | All UI blocks | `done` |
-| J-10 | Legal pages: privacy policy, terms of service, cookie consent banner | A-04 | `done` |
-| J-11 | Final deployment: Vercel production config, environment variables, custom domain (when ready), preview deploys for PRs | All blocks | `done` |
-
-**Block J Quality Notes (2026-02-11):**
-- Error boundary: reusable class component with getDerivedStateFromError, retry button, fallback prop
-- Loading states: Skeleton loaders for app shell, explore page, and listing detail
-- Custom 404 page with "Go Home" + "Explore Properties" links
-- Global + app-group error pages with retry + home navigation
-- next.config.ts: image optimization (avif/webp, Supabase remote patterns), security headers (X-Frame-Options DENY, X-Content-Type-Options nosniff, Referrer-Policy strict-origin-when-cross-origin, Permissions-Policy), caching (marketing pages s-maxage=86400, API s-maxage=60 stale-while-revalidate=300)
-- GA4 analytics: conditional on NEXT_PUBLIC_GA_ID, trackEvent() helper exported
-- Cookie consent: fixed bottom banner, localStorage persistence under key "cookie-consent", accept/decline
-- Validations: lightweight helpers (validatePositiveInt, validateOptionalInt, validateString, validateEnum, validateBbox)
-- Privacy policy (8 sections) and terms of service (9 sections) pages
-- Accessibility: skip-to-content link, ARIA labels on sidebar/mobile nav, id="main-content" on main
-- Sitemap updated with privacy + terms pages
-- Build passes clean with 33 pages total
+### BLOCK K — Scraper Integration ✅ COMPLETE (code done, NOT yet deployed)
+**What exists:** Python scraper updated for Supabase. New SQLAlchemy models (`models/new_schema.py`) matching Drizzle schema (serial PKs, matching column names). `SupabasePropertyService` handles upserts, deduplication by source+source_listing_id, price_per_sqm. `TranslateService` (Google Cloud Translation API v2). `ImageUploadService` (Supabase Storage bucket `property-images`). Both optional with graceful fallback. Remote trigger (`POST /api/scrape/trigger`, X-API-Key auth). Enhanced health endpoint. Scheduler (`SCHEDULER_ENABLED` + `SCHEDULER_INTERVAL_HOURS`). Next.js admin proxy + ScraperAdmin UI.
+**CRITICAL:** Code is committed to GitHub but NOT deployed to Vultr. Env vars not configured. See Block O.
 
 ---
 
-### BLOCK K — Scraper Integration (Parallel Track)
-*Can be worked on independently alongside Blocks D-I. Runs on Vultr VPS.*
-
-| # | Task | Depends On | Status |
-|---|---|---|---|
-| K-01 | Update Python scrapers: Supabase connection string, effective_database_url property, asyncpg driver | B-05 | `done` |
-| K-02 | New SQLAlchemy models matching Drizzle schema, SupabasePropertyService with serial PKs | K-01 | `done` |
-| K-03 | TranslateService: Google Cloud Translation API v2, batch support, auto-translate in pipeline | K-02 | `done` |
-| K-04 | ImageUploadService: download from portal URL → upload to Supabase Storage → store public URL | K-02 | `done` |
-| K-05 | Remote trigger API: `POST /api/scrape/trigger` with X-API-Key auth, creates ScrapeJob + dispatches | K-02 | `done` |
-| K-06 | Enhanced health endpoint: DB connectivity, last scrape time, service availability flags | K-05 | `done` |
-| K-07 | Cron scheduling: existing scheduler with configurable interval (SCHEDULER_ENABLED + SCHEDULER_INTERVAL_HOURS) | K-02 | `done` |
-| K-08 | Next.js admin: `/api/scraper/trigger` proxy route + ScraperAdmin UI in settings page | K-05, G-07 | `done` |
-
-**Block K Quality Notes (2026-02-11):**
-- Python scraper project at `C:\Users\nilsb\Documents\Japan Scrapping Tool\backend\`
-- Config updated: `DATABASE_URL` env var for Supabase, auto-converts `postgres://` → `postgresql+asyncpg://`
-- New SQLAlchemy models (`models/new_schema.py`) match Drizzle schema exactly: serial PKs, matching column names (price_jpy, lat/lng, storage_path, source_listing_id, etc.)
-- Old models (Property with UUID PK) kept only as reference — NOT used for new data
-- Scraping infrastructure tables (scrape_sources, scrape_jobs, scrape_logs) created separately, not managed by Drizzle
-- `SupabasePropertyService`: upserts scraped data, handles deduplication by source+source_listing_id, computes price_per_sqm
-- `TranslateService`: Google Cloud Translation API v2, translates description_ja → description_en during scrape
-- `ImageUploadService`: downloads from portal URLs, uploads to Supabase Storage bucket `property-images`, returns public URL
-- Both services are optional (graceful fallback if API keys not set)
-- Runner updated to use new service with per-listing error handling (doesn't abort on single failure)
-- Remote trigger (`POST /api/scrape/trigger`): requires X-API-Key header, validates source exists
-- Health endpoint returns: status, version, DB connectivity, last scrape details, service availability flags
-- Next.js proxy (`/api/scraper/trigger`): GET returns health, POST proxies trigger. ScraperAdmin in settings page shows status, last scrape, source selector, trigger button
-- `.env.example` created for Python scraper with all env vars documented
-- K-07: Scheduler already implemented in `tasks/runner.py`, configurable via `SCHEDULER_ENABLED` + `SCHEDULER_INTERVAL_HOURS`
-- Build passes clean with 35 pages
+### BLOCK L — User Dashboard ✅ COMPLETE
+**What exists:** `/api/dashboard` aggregates stats in parallel. 4 stat cards (wishlists, alerts, deals, plan). Recently viewed (localStorage, max 20). Pipeline activity (last 5 deals). Personalized greeting.
+**Known issues (to fix in Block Q):** Shows admin data, needs consumer-focused redesign.
 
 ---
 
-### BLOCK L — User Dashboard
-*Ties everything together. Needs wishlists, alerts, deals, and auth.*
-
-| # | Task | Depends On | Status |
-|---|---|---|---|
-| L-01 | Dashboard page: overview cards (total wishlisted, active alerts, active deals, subscription plan) | G-04, H-03, H-04, I-04 | `done` |
-| L-02 | Recent activity: last 5 viewed properties (stored in localStorage), recent alerts, pipeline activity | L-01 | `done` |
-| L-03 | Quick actions: "Explore Map", "New Wishlist", "New Alert", "Calculator" shortcut buttons | L-01 | `done` |
-
-**Block L Quality Notes (2026-02-11):**
-- Dashboard API (`/api/dashboard`) aggregates all stats in parallel (wishlists, items, alerts, deals, subscription)
-- 4 overview stat cards: Saved Properties (with list count), Active Alerts (with total), Active Deals (with completed count), Current Plan
-- Each stat card links to its respective page
-- Recently viewed properties stored in localStorage under key "recent-views" (max 20 entries)
-- View tracking added to listing-detail.tsx via useEffect (saves id, title, price, visitedAt)
-- Pipeline Activity section shows last 5 deals with stage badges and time-ago formatting
-- Recent Alerts section shows last 3 alerts with frequency/status (conditionally rendered)
-- Quick actions: 4 buttons linking to Explore, Wishlists, Alerts, Calculator
-- Personalized greeting: "Welcome back, {firstName}" using session data
-- Build passes clean with 34 pages
+### BLOCK N — Market-Ready Improvements ✅ COMPLETE
+**What was added:** Scraper pipeline creates hazard/score stubs with inline scoring on new properties. Bcrypt password hashing (N-08). Admin role with 403 enforcement (N-09). Similar properties API + UI (N-10). Contact page with DB storage (N-11). ScraperAdmin enhanced with per-source stats, live job polling, history (N-12). Dynamic sitemap with property URLs (N-05). Profile save + account deletion wired (N-06/N-07).
+**PENDING:** Schema changes (password_hash, role, contact_submissions) need `db:push` — see Block O-01. 39 pages build clean.
 
 ---
 
-### Implementation Order Summary
+## 7b. Gap Analysis — Where We Are vs. AkiyaMart Benchmark
 
-```
-A-01 → A-02 → A-03 → A-04 + A-05 (parallel) → A-06
-                  ↓
-B-01 → B-02 → B-03 + B-04 + B-05 (parallel) → B-06 + B-07 + B-08 + B-09 (parallel) → B-10 → B-11 → B-12
-                  ↓
-C-01 + C-04 (parallel) → C-02 → C-03 → C-05
-                                    ↓
-D-01 → D-02 → D-03 → D-04 → D-05 → D-06 + D-07 (parallel) → D-08 → D-09 → D-10 → D-11 → D-12 → D-13 → D-14
-                                    ↓
-E-01 → E-02 + E-03 + E-04 + E-05 + E-06 + E-07 (parallel) → E-08 → E-09 → E-10 → E-11
-                                    ↓
-F-01 → F-02 → F-03 → F-04 → F-05 → F-06 → F-07 → F-08 + F-09 (parallel)
-                                    ↓
-G-01 → G-02 → G-03 → G-04 → G-05 + G-06 (parallel) → G-07 → G-08 → G-09 → G-10 → G-11 → G-12
-                                    ↓
-H-01 + H-02 (parallel) → H-03 + H-04 (parallel) → H-05 + H-07 (parallel) → H-06 → H-08 → H-09 → H-10
-                                    ↓
-I-01 + I-02 + I-03 (parallel) → I-04 + I-05 (parallel) → I-06 → I-07 → I-08 → I-09 → I-10
-                                    ↓
-L-01 → L-02 → L-03
-                                    ↓
-J-01 through J-11 (polish pass)
+> **This section was added 2026-02-12 after deep analysis of https://www.akiya-mart.com and brutal audit of our own UI/UX.**
 
-PARALLEL TRACK: K-01 → K-02 → K-03 + K-04 (parallel) → K-05 → K-06 → K-07 → K-08
-```
+### AkiyaMart Profile (The Target)
+- **Founded:** 2023 by Take Kurosawa & Joey Stockermans (met at ICU Tokyo 2010)
+- **Scale:** 900K+ listings, "170K+ properties under $100K USD"
+- **Revenue model:** 3 products — Discovery (search SaaS), Direct (agent-matched buying $3K fee), Care (post-purchase management $1K/yr)
+- **Pricing:** Free (limited) / Basic $6/mo / Pro $15/mo ($11/mo annual)
+- **Architecture:** Marketing site + `app.akiya-mart.com` subdomain for listings
+- **TrustPilot:** 3.2/5 (only 3 reviews, 67% 1-star — paywall frustration)
+- **Self-described:** "50% of the way there"
 
-**Total tasks: 86**
+### What AkiyaMart Does Well (Must Match)
+1. **Map-first UX** — The map IS the product, not a sidebar afterthought
+2. **Scale numbers as hooks** — "900K+ listings" in hero creates authority
+3. **English-first** — Users never see Japanese, everything translated
+4. **Hazard data on listings** — Tsunami, earthquake, landslide, flood per property
+5. **Airbnb eligibility insights** — Investment angle built into search
+6. **SEO landing pages** — Programmatic `/prefecture/{slug}` and `/city/{slug}` for every location
+7. **Three-product funnel** — Search → Buy → Manage (full lifecycle)
+8. **Promo codes** through partners — Drives signups via influencer/podcast network
+9. **Podcast content** — "Buying a House in Japan" builds trust and authority
+10. **Historical sold data** — Price transparency for investors
 
----
+### What AkiyaMart Does Poorly (Our Opportunities)
+1. **No property scoring** — They show raw data but compute NO scores. Our 6-dimension scoring is genuinely unique
+2. **No financial calculator/deal pipeline** — Zero investor tools. We have both
+3. **Aggressive paywall** — "Pointless sign-up" is their #1 complaint. We can be more generous
+4. **Generic SaaS design** — No Japanese aesthetic, no visual differentiation. We have wabi-sabi design system
+5. **Hazard data paywalled** — Basic risk info should be free. We show it free = trust builder
+6. **No renovation cost estimates** — Major gap for akiya buyers
+7. **Tiny agent network** — Only 2-3 agents, not scalable
+8. **No blog/written content** — Missing SEO-rich articles
+9. **No comparison tool** — Can't compare properties side by side
+10. **Separate subdomain** — Split app.akiya-mart.com confuses the experience
 
-### Completed Tasks Log
+### Brutal Honest Assessment: Our Current State
 
-| # | Task | Completed | Quality Notes |
-|---|---|---|---|
-| A-01 | Initialize Next.js 16 project | 2026-02-11 | Next.js 16.1.6 + React 19 + TailwindCSS v4 (CSS-based config, not tailwind.config.ts). Inter font, Japanese aesthetic CSS vars, cn() utility, full TypeScript types for all domain entities, .env.example, clean directory structure. Build passes, dev server starts in 543ms. Project at `C:\Users\nilsb\Documents\japan-prop-search\`. |
-| A-02 | Complete design system theme | 2026-02-11 | Added popover/sidebar/semantic foreground CSS vars. Animation keyframes (accordion, fade, slide 4 directions). All tokens mapped to Tailwind v4 @theme. |
-| A-03 | UI component library (16 components) | 2026-02-11 | Button (7 variants + 4 sizes), Card (6 parts), Input, Textarea, Label, Checkbox, Select (full Radix), Dialog (overlay+close), DropdownMenu (full), Tabs, Accordion, Tooltip, Popover, Badge (7+5 hazard), Separator, Skeleton, ScrollArea. All use theme CSS vars. Build passes clean. Homepage uses Button+Badge as smoke test. |
-| A-04 | Marketing layout | 2026-02-11 | MarketingHeader: sticky, backdrop-blur, logo with ◉ icon, 4 nav links, Sign In ghost + Start Free CTA. Mobile: hamburger with animated max-h slide-down. Footer: 4-column (brand+desc, Product, Company, Legal), separator, copyright. (marketing)/layout.tsx wraps everything. |
-| A-05 | App layout | 2026-02-11 | AppSidebar: 64px wide, icon nav with 7 links (Map, Dashboard, Heart, Bell, Kanban, Calculator, Settings), Tooltip on hover, active state with accent bg. Mobile: fixed bottom tab bar with top 5 items. AppHeader: breadcrumb from route title map, search input, user DropdownMenu (Dashboard, Settings, Sign In). (app)/layout.tsx: flex h-screen, sidebar + column(header + scrollable main). pb-14 on mobile for bottom bar. |
-| A-06 | Placeholder pages (13 routes) | 2026-02-11 | 4 marketing routes (/, /pricing, /faq, /about) with marketing layout. 8 app routes (/explore, /dashboard, /listing/[id], /wishlists, /alerts, /pipeline, /calculator, /settings) with app layout. All build, all apply correct layout. Block A complete. |
-| B-02–B-12 | Database layer + currency utility | 2026-02-11 | Drizzle ORM with 17 tables (full schema.ts: 480 lines). All relations defined. 47 prefectures, 13 municipalities with real bbox, 5 listing sources, 60 demo properties seed script. Currency util: JPY↔USD/EUR/GBP/AUD. npm scripts: db:generate/migrate/push/seed/studio. Uses lat/lng double precision with composite index (PostGIS can be added later if needed). Build passes clean. Waiting on B-01 (Supabase project creation) to run migrations. |
-| C-01–C-05 | Core API routes | 2026-02-11 | 6 API route files: prefectures, municipalities, listings (bbox search + filters), listings/[id] (detail + view count), places/find (location→bbox), listings/geojson (map markers). Lazy DB via Proxy pattern. Simple lat/lng range queries (no PostGIS needed). GeoJSON capped at 2000 features. |
-| D-01–D-14 | Map Explore page | 2026-02-11 | Full MapLibre map + sidebar. useExplore hook manages bbox/filters/URL sync. Clustered markers (green/blue/amber/red by price). Popups on click. Filter panel (currency, sort, price range, rooms, land rights, structure, min score). LocationSearch via /api/places/find. Mobile bottom sheet. "Search this area" button. |
-| E-01–E-11 | Listing detail page | 2026-02-11 | Server→client component split. Image gallery with lightbox + keyboard nav. 9-cell facts grid. Hazard panel (5 categories). RadarChart scores. Source badges. Description/Area Info tabs. Mini map. Currency selector. SEO metadata + JSON-LD. E-09 deferred. |
-| F-01–F-08 | Marketing & SEO pages | 2026-02-11 | Homepage (5 sections). Pricing (3 tiers). FAQ (16 questions, 4 categories). About page. robots.ts + sitemap.ts. F-04/F-05/F-06/F-09 deferred (need DB). |
-| G-01–G-12 | Authentication & user system | 2026-02-11 | NextAuth.js v5 beta. JWT sessions. Google OAuth + Credentials. Auto-create users in FREE_MODE. getDbOrDummy() for build safety. SessionProvider in root layout. Auth middleware protects 6 routes. Settings page. canAccess() feature gate. /api/me route. |
-| H-01–H-08 | Wishlists & alerts | 2026-02-11 | Full CRUD for wishlists + alerts. WishlistButton (icon/labeled variants). Check API for property membership. "Save this search" on Explore. Wishlist detail page. H-09/H-10 deferred (email worker). |
-| I-01–I-10 | Deal pipeline & financial tools | 2026-02-11 | Financial calculator ported from Python (290 lines). Scoring engine ported (200 lines). Kanban pipeline (6 stages). Due diligence checklist. Calculator page (purchase costs + ROI). "Start Deal" on listing detail. CSV export. |
-| J-01–J-11 | Polish & launch readiness | 2026-02-11 | Error boundaries. Loading skeletons. 404/500 pages. next.config.ts (image optimization, security headers, caching). GA4 analytics. Cookie consent. Input validation. Privacy policy + terms. Accessibility (skip-to-content, ARIA). 33 pages build clean. |
-| L-01–L-03 | User Dashboard | 2026-02-11 | Dashboard API (parallel aggregation). 4 stat cards (wishlists, alerts, deals, plan). Recently viewed (localStorage). Pipeline activity (last 5 deals). Recent alerts (last 3). Quick actions (4 buttons). Personalized greeting. 34 pages build clean. |
-| K-01–K-08 | Scraper Integration | 2026-02-11 | Python scraper updated for Supabase. New SQLAlchemy models matching Drizzle schema. TranslateService (Google API). ImageUploadService (Supabase Storage). Remote trigger with API key auth. Enhanced health endpoint. Scheduler. Next.js admin UI in settings. 35 pages build clean. |
-| N-01–N-13 | Block N: Market-ready improvements | 2026-02-11 | See Block N section below. |
+**What we've built (Blocks A-N):**
+- Next.js 16 consumer app with 39 pages (deployed to Vercel)
+- Python scraper microservice with 5 scrapers (SUUMO, HOME'S, at home, Akiya Banks, BIT Auction)
+- React+Vite admin dashboard (internal tool at `frontend/`)
+- Full data model (properties, scoring, hazards, financials, deals, wishlists, alerts)
+- Authentication, feature gates, subscription schema
 
----
+**What's actually working for a real user visiting the site:**
+- ❌ Zero real listings (only 60 demo/seed properties)
+- ❌ Zero real images (placeholders only)
+- ❌ Supabase B-01 still blocked (schema changes not pushed)
+- ❌ Scrapers not deployed/running on Vultr
+- ❌ No Google OAuth configured
+- ❌ No SEO landing pages (F-04/F-05 deferred)
+- ❌ No email alerts (H-09/H-10 deferred)
+- ❌ No Stripe payments (G-11 deferred)
+- ❌ No real translation pipeline running
 
-### BLOCK N — Market-Ready Code Improvements
-*Fixes critical gaps in the scraper pipeline and Next.js app to support real data and real users.*
+**UI/UX Audit Scores (consumer product perspective):**
 
-| # | Task | Status |
+| Component | Score | Critical Issues |
 |---|---|---|
-| N-01 | Fix SupabasePropertyService — add hazard/score stub records on property creation with basic inline scoring | `done 2026-02-11` |
-| N-02 | Fix runner.py finally block null safety (services init to None before try) | `done 2026-02-11` |
-| N-03 | Add /api/scrape/status/{job_id} and /api/scrape/history endpoints to Python scraper | `done 2026-02-11` |
-| N-04 | Enrich /health endpoint with per-source stats and property_count | `done 2026-02-11` |
-| N-05 | Dynamic sitemap with property URLs (queries active properties from DB) | `done 2026-02-11` |
-| N-06 | Wire up settings profile save (PATCH /api/me + settings page handler) | `done 2026-02-11` |
-| N-07 | Wire up delete account (DELETE /api/me + confirmation + signOut) | `done 2026-02-11` |
-| N-08 | Add password hashing with bcryptjs (schema passwordHash + auth.ts verify/hash) | `done 2026-02-11` |
-| N-09 | Add admin role and scraper auth check (schema role field + JWT + 403 on non-admin) | `done 2026-02-11` |
-| N-10 | Similar properties API + UI (server-side query + horizontal scroll cards) | `done 2026-02-11` |
-| N-11 | Contact page with DB storage (contactSubmissions table + /api/contact + /contact page) | `done 2026-02-11` |
-| N-12 | Scraper status/history proxy routes + enhanced ScraperAdmin UI (job polling, per-source stats, history) | `done 2026-02-11` |
-| N-13 | Sync PROJECT_VISION.md files across codebases | `done 2026-02-11` |
+| Overall design | 3/10 | Looks like admin tool, not consumer product |
+| Color contrast | 3/10 | Muted foreground fails WCAG AA (3.8:1, needs 4.5:1) |
+| Typography | 3/10 | Everything is `text-sm`, no hierarchy, no custom fonts |
+| Dashboard | 3/10 | Exposes scraper controls, zero emotional hooks |
+| Property Search | 2/10 | Feels like SQL query builder, filters dump all at once |
+| Property Detail | 3/10 | Data-rich but emotionally flat, no hero image section |
+| Map | 5/10 | Functional but plain OSM tiles, generic circle markers |
+| Mobile | 2/10 | No mobile navigation at all (sidebar hidden, no hamburger) |
+| Psychological hooks | 0/10 | Zero urgency, social proof, FOMO, personalization |
+| Hazard Panel | 4/10 | Best component, but too technical for consumers |
 
-**Block N Quality Notes (2026-02-11):**
-- Scraper pipeline: new properties now get hazard + score stub records with basic inline scoring (value from price/sqm, condition from building age, rebuild from road_width + rebuild_possible)
-- Security: passwords now hashed with bcryptjs, admin role required for scraper trigger (403 for non-admins)
-- Settings: profile save and account deletion both wired and working
-- Similar properties: server-side query (same prefecture, price ±50%, ordered by price proximity), horizontal scroll UI
-- Contact form: stores in contactSubmissions table, input validation (max lengths, email format)
-- Scraper admin: per-source stats, live job polling (5s interval), expandable job history
-- Dynamic sitemap: generates /listing/{id} URLs for all active properties
-- 39 pages build clean after all changes
+### The Gap: What Gets Us From 10% → AkiyaMart Level
+
+```
+PHASE 1: FOUNDATION (Blocks O-P)     → Gets us from 10% to 30%
+  - Live data pipeline flowing
+  - UI/UX overhaul (contrast, typography, animations)
+  - Mobile navigation working
+
+PHASE 2: CONSUMER EXPERIENCE (Blocks Q-R) → Gets us from 30% to 55%
+  - Reframe from admin tool → consumer product
+  - SEO landing pages generating organic traffic
+  - Property detail pages that sell
+  - Search UX that delights
+
+PHASE 3: GROWTH ENGINE (Blocks S-T)   → Gets us from 55% to 75%
+  - Email alerts working
+  - Stripe payments live
+  - Content strategy (blog/guides)
+  - Advanced features (Airbnb insights, price history)
+
+PHASE 4: SCALE & POLISH (Blocks U-V)  → Gets us from 75% to 90%+
+  - 100K+ listings (continuous scraping)
+  - Performance optimization at scale
+  - A/B testing, conversion optimization
+  - Agent network (buying service)
+```
+
+---
+
+### BLOCK O — Live Data Pipeline (CRITICAL — Nothing Else Matters Without This)
+*Zero users will stay on a site with demo data. This is the #1 blocker.*
+
+#### O-00: Pre-deployment code fixes ✅ DONE (2026-02-12)
+**What was fixed before deployment:**
+- Added `UniqueConstraint("source_id", "source_listing_id")` on `NewPropertyListing` — prevents duplicate listings at DB level
+- Fixed CORS: removed wildcard `*`, now reads from `CORS_ORIGINS` env var (configurable per environment)
+- Added production env var validation at startup — fails fast if `DATABASE_URL` or `SCRAPER_API_KEY` missing
+- Updated Celery tasks (`scraping_tasks.py`) to use `SupabasePropertyService` instead of legacy `PropertyService`
+- Removed local PostgreSQL from `docker-compose.prod.yml` — backend connects directly to Supabase
+- Rewrote `deploy.sh` — interactive setup prompts for Supabase credentials, generates `.env.production`
+- Updated `.env.example` files with all required/optional vars including `CORS_ORIGINS`
+- Verified image upload correctly returns full public URL (Next.js uses `storagePath` directly as `<img src>`)
+
+| # | Task | Depends On | Status | Effort |
+|---|---|---|---|---|
+| O-01 | Push Block N schema changes to Supabase (`npm run db:push` — adds password_hash, role, contact_submissions) | B-01 | `pending` | 5 min |
+| O-02 | Set admin role on your user account (SQL: `UPDATE users SET role = 'admin'`) | O-01 | `pending` | 2 min |
+| O-03 | Deploy updated Python scraper to Vultr (`git pull` + `bash deploy.sh`) | O-01 | `pending` | 10 min |
+| O-04 | Configure Supabase connection string on Vultr scraper (deploy.sh prompts for it) | O-03 | `pending` | 5 min |
+| O-05 | Configure Google Translate API key on Vultr (deploy.sh prompts for it) | O-03 | `pending` | 15 min |
+| O-06 | Configure Supabase Storage bucket on Vultr (deploy.sh prompts for it) | O-03 | `pending` | 10 min |
+| O-07 | Run first real scrape: SUUMO for 1 prefecture (e.g. Tokyo) — verify full pipeline: scrape → translate → upload images → write to Supabase | O-04, O-05, O-06 | `pending` | 30 min |
+| O-08 | Verify properties appear on Vercel site: explore map shows real pins, listing detail shows real data + images | O-07 | `pending` | 15 min |
+| O-09 | Run scrapes for all 5 sources across 5-10 prefectures — target 1,000+ real listings | O-07 | `pending` | 2 hrs |
+| O-10 | Enable scheduler on Vultr (SCHEDULER_ENABLED=true, SCHEDULER_INTERVAL_HOURS=6) for continuous data freshness | O-09 | `pending` | 5 min |
+| O-11 | Set up Google OAuth (Google Cloud Console → client ID/secret → Vercel env vars) | O-01 | `pending` | 30 min |
+| O-12 | Monitor first 24 hours: check /health endpoint, verify scheduled scrapes complete, spot-check data quality | O-10 | `pending` | ongoing |
+
+**Block O Success Criteria:**
+- ✅ 1,000+ real property listings with images in Supabase
+- ✅ Translations working (address_en, description_en populated)
+- ✅ Images uploaded to Supabase Storage and visible on site
+- ✅ Scheduler running every 6 hours
+- ✅ Google OAuth login working
+- ✅ Admin can trigger scrapes from settings page
+
+---
+
+### BLOCK P — UI/UX Overhaul: From Admin Tool to Consumer Product
+*The current UI fails WCAG contrast, has no mobile nav, and looks like Grafana. This block transforms it into something users trust and enjoy.*
+
+| # | Task | Status | Effort |
+|---|---|---|---|
+| **P-01** | **Fix color contrast (CRITICAL ACCESSIBILITY):** Increase `--muted-foreground` from 40% to 28% lightness. Increase `--border` visibility. Audit all text/bg combinations for 4.5:1 WCAG AA compliance | `pending` | 1 hr |
+| **P-02** | **Typography overhaul:** Import Inter font (Google Fonts via next/font). Create clear hierarchy: hero (text-5xl), page title (text-3xl), section title (text-xl font-semibold), body (text-base), small (text-sm). Price displays should be text-4xl bold (biggest thing on any listing) | `pending` | 2 hrs |
+| **P-03** | **Mobile navigation:** Add hamburger menu button in Header → opens full-screen mobile nav overlay (Radix Dialog/Sheet). Add bottom tab bar for primary nav (Explore, Search, Wishlist, Pipeline, Profile). Test on 375px/414px/768px | `pending` | 3 hrs |
+| **P-04** | **Micro-animations:** Add `transition-all duration-200` to all interactive elements. Stat card number count-up on load (react-countup). Card hover elevation (translateY -2px + shadow increase). Skeleton shimmer effect. Page fade-in transitions | `pending` | 2 hrs |
+| **P-05** | **Color warmth:** Shift background from cold gray (220 20% 97%) to warm off-white (#FAFAF8). Shift borders to warm (#E5E2DB). Shift accent from generic purple to deep indigo (#2D4A7A). Apply full Japanese aesthetic palette from Section 6 | `pending` | 2 hrs |
+| **P-06** | **Card redesign:** White bg + warm 1px border + subtle shadow-sm. Rounded-xl (12px). Generous internal padding (p-6 minimum). Image area at top (16:10 ratio, object-cover). Hover: shadow-md + slight lift | `pending` | 2 hrs |
+| **P-07** | **Map visual upgrade:** Replace plain OSM tiles with Maptiler Streets (free tier, much prettier). Custom property markers (house icon instead of circles, color-coded by score: green 70+, amber 40-69, red 0-39). Larger, more readable popup cards. Satellite view toggle button | `pending` | 3 hrs |
+| **P-08** | **Score badges redesign:** Pill-shaped badges with softer colors (bg-emerald-50/text-emerald-700 instead of harsh bg-green-500). Score number prominent, label secondary. Consistent across all views (card, detail, popup) | `pending` | 1 hr |
+| **P-09** | **Hazard simplification for consumers:** Add simplified risk summary at top ("Earthquake risk: Medium, Flood risk: Low") with traffic-light icons. Keep detailed data in expandable "Show technical details" accordion below. Add tooltips explaining jargon ("What is PGA?", "What is liquefaction?") | `pending` | 2 hrs |
+| **P-10** | **Empty states:** Replace plain "No data" text with illustrated empty states (simple SVG illustrations). Add helpful CTA in each: "Start exploring properties →", "Create your first wishlist →", "No hazard data yet — we're working on it" | `pending` | 2 hrs |
+| **P-11** | **Loading experience:** Replace plain spinners with branded skeleton screens. Map: subtle pulsing Japan outline while loading tiles. Lists: realistic card skeletons (gray rectangles matching card layout). Add progress bar for scrape jobs | `pending` | 1 hr |
+| **P-12** | **Button hierarchy:** Primary (solid indigo, white text). Secondary (outline indigo). Ghost (transparent, text only). Destructive (muted red). All with consistent padding, rounded-lg, hover states, focus rings. Minimum 44px touch target on mobile | `pending` | 1 hr |
+
+**P-01 Details (Contrast Fix):**
+```css
+/* BEFORE (fails WCAG AA at 3.8:1): */
+--muted-foreground: 215.4 16.3% 40%;
+
+/* AFTER (passes at 5.2:1): */
+--muted-foreground: 215.4 16.3% 28%;
+
+/* Also fix border visibility: */
+--border: 220 13% 78%;  /* was 83% — too invisible */
+```
+
+**P-05 Details (Japanese Aesthetic Colors):**
+```css
+:root {
+  --bg-primary: #FAFAF8;       /* warm off-white, like washi paper */
+  --bg-secondary: #F5F3EF;     /* slightly darker warm gray */
+  --bg-card: #FFFFFF;           /* pure white for cards */
+  --text-primary: #1A1A1A;     /* near-black */
+  --text-secondary: #6B6B6B;   /* warm gray — passes AA on white */
+  --text-muted: #8B8B8B;       /* lighter warm gray — passes AA on white for large text */
+  --accent-primary: #2D4A7A;   /* deep indigo (藍) */
+  --accent-light: #4A6FA5;     /* lighter indigo */
+  --accent-subtle: #E8EDF4;    /* very light indigo wash */
+  --success: #4A7A5C;          /* muted green, like matcha */
+  --warning: #B8860B;          /* gold, like kintsugi */
+  --danger: #8B3A3A;           /* muted red, like torii */
+  --border: #E5E2DB;           /* warm light border */
+}
+```
+
+---
+
+### BLOCK Q — Consumer Experience Transformation
+*Reframe every page from "admin dashboard" to "product people want to use". Add psychological hooks, trust signals, and conversion pathways.*
+
+| # | Task | Status | Effort |
+|---|---|---|---|
+| **Q-01** | **Homepage redesign (THE most important page):** Full-width hero with stunning Japanese landscape photo (Unsplash/royalty-free), overlay headline "Discover Your Japanese Property", stat counters ("X,XXX listings · 47 prefectures · 5 data sources"). "How It Works" 3-step (Search → Analyze → Invest). Feature grid (6 cards with icons). Pricing preview. Social proof section. Final CTA | `pending` | 4 hrs |
+| **Q-02** | **Hero stat counters:** Query actual DB count on homepage load. Display "X,XXX Properties" (real number), "47 Prefectures", "6-Dimension Scoring", "Free Hazard Data". Numbers should count-up animate on scroll-into-view | `pending` | 1 hr |
+| **Q-03** | **Property Search UX redesign:** Progressive disclosure — show 3 basic filters (location, price range, sort) by default. "More filters" button reveals advanced panel (rooms, structure, land rights, rebuild, min score). Replace hardcoded price options with range slider. Rename "Rebuild OK/NG" → "Can Rebuild / Cannot Rebuild". Make sort dropdown human-readable ("Newest First", "Lowest Price", "Highest Score") | `pending` | 3 hrs |
+| **Q-04** | **Property Detail page redesign (THE sales page):** Hero image gallery (full-width, 16:9, swipeable). Price as largest element (text-4xl bold). Score badge prominent next to price. "Save to Wishlist" heart + "Start a Deal" CTA side by side. Key facts as icon grid (not plain text). Tabbed sections: Overview / Hazards / Scores / Location / Similar. Sticky bottom bar on mobile (Price + CTA button always visible) | `pending` | 5 hrs |
+| **Q-05** | **Add urgency & FOMO hooks:** "New" badge on listings < 7 days old. "Price reduced" badge when price drops between scrapes. "X investors viewed this week" counter (can start with view_count). "Only X properties in this area" scarcity when < 10 results. "Last updated X hours ago" freshness indicator on each listing | `pending` | 3 hrs |
+| **Q-06** | **Add trust signals:** "Data from X official sources" with source logos (SUUMO, HOME'S, etc). "Hazard data from J-SHIS (Government)" attribution. "Prices verified against X listings" on price. "Updated every 6 hours" freshness promise. Source badge on each listing linking to original portal | `pending` | 2 hrs |
+| **Q-07** | **Dashboard redesign (for consumers, not admins):** Remove all scraper controls from default view (move to /admin route, admin-only). Show: "Welcome back, {name}" greeting. "Your saved properties" (wishlist preview). "Recent price changes" in saved searches. "Your deal pipeline" summary. "Recommended for you" properties (same prefecture as saved). Quick stats: total saved, active alerts, active deals | `pending` | 3 hrs |
+| **Q-08** | **Search result cards redesign:** Property image (full-width top, 16:10 ratio). Price large + bold below image. Address line. Key specs row (🛏 3LDK · 📐 120m² · 📅 1985). Score pill badge (colored). Source badges (small dots). Heart button (top-right corner of image). "New" or "Price Drop" badge (top-left of image) | `pending` | 3 hrs |
+| **Q-09** | **"Save this search" and alert prompts:** After user performs 3+ searches, show subtle banner: "Want to get notified about new listings like these? Save this search →". On listing detail, show: "Get alerts when similar properties are listed →". Make the alert creation flow 2 clicks (name auto-generated from filters) | `pending` | 2 hrs |
+| **Q-10** | **Currency/Price UX:** Show JPY primary + converted price secondary on every price display (e.g., "¥6,000,000 (~$38,390 USD)"). Currency selector in header (persistent via localStorage). Add "万円" display option (e.g., "600万円") as Japanese users expect | `pending` | 2 hrs |
+| **Q-11** | **Score explanation for consumers:** On property detail, add "What does this score mean?" expandable section. Plain English explanations: "This property scores 72/100. It's in a low-risk area for natural disasters (85/100), the building can be legally rebuilt (90/100), but the neighborhood is declining in population (45/100)." Generate from score dimensions | `pending` | 2 hrs |
+
+**Q-01 Details (Homepage — must create desire):**
+```
+Section 1 — Hero (full viewport height)
+┌─────────────────────────────────────────────────────┐
+│  [Stunning photo: misty Japanese countryside/akiya]  │
+│                                                       │
+│     Discover Your Japanese Property                   │
+│     Search thousands of translated listings with      │
+│     hazard data, investment scoring, and deal tools   │
+│                                                       │
+│     [Start Exploring →]    [View Pricing]             │
+│                                                       │
+│  ┌──────┐  ┌──────────┐  ┌────────────┐  ┌────────┐ │
+│  │ 2,340│  │ 47       │  │ 6-Dimension│  │ Free   │ │
+│  │ Props│  │Prefectures│  │  Scoring   │  │ Hazard │ │
+│  └──────┘  └──────────┘  └────────────┘  └────────┘ │
+└─────────────────────────────────────────────────────┘
+
+Section 2 — How It Works (3 steps)
+┌─────────┐  ┌─────────┐  ┌─────────┐
+│ 🔍      │  │ 📊      │  │ 🏠      │
+│ Search  │  │ Analyze │  │ Invest  │
+│ Browse  │  │ Score,  │  │ Pipeline│
+│ map +   │  │ hazard, │  │ calc,   │
+│ filters │  │ compare │  │ deals   │
+└─────────┘  └─────────┘  └─────────┘
+
+Section 3 — Why Us (differentiators vs AkiyaMart)
+- 6-Dimension Scoring (they don't have this)
+- Free Hazard Overlays (they paywall this)
+- Investment Calculator (they don't have this)
+- Multi-Source Transparency (they don't show sources)
+- Deal Pipeline (they don't have this)
+- Japanese Aesthetic (they look generic)
+
+Section 4 — Featured Properties (6 real listings, auto-refreshed)
+[PropertyCard] [PropertyCard] [PropertyCard]
+[PropertyCard] [PropertyCard] [PropertyCard]
+
+Section 5 — Pricing Preview (3 tiers, compact)
+
+Section 6 — Final CTA
+"Ready to find your Japanese property?"
+[Start Exploring Free →]
+```
+
+**Q-04 Details (Property Detail — the page that converts):**
+```
+┌─────────────────────────────────────────────┐
+│ ← Back to Search                             │
+├─────────────────────────────────────────────┤
+│ [IMAGE GALLERY — full width, 16:9, swipe]    │
+│ [img1]  [img2]  [img3]  [img4]  [+12 more]  │
+├─────────────────────────────────────────────┤
+│                                               │
+│  ¥6,000,000          Score: 72/100            │
+│  (~$38,390 USD)      ████████░░ Good          │
+│                                               │
+│  📍 Hokkaido, Yubari-shi                     │
+│  🏠 3LDK · 120m² land · 80m² building       │
+│  📅 Built 1985 · Wood frame                  │
+│                                               │
+│  [♥ Save to Wishlist]  [📋 Start a Deal]     │
+│                                               │
+├─ [Overview] [Hazards] [Scores] [Location] ───┤
+│                                               │
+│  Key Facts (icon grid)                        │
+│  ┌────────┬─────────┬──────────┐             │
+│  │ Price  │ Land    │ Building │             │
+│  │ ¥6M   │ 120m²   │ 80m²    │             │
+│  ├────────┼─────────┼──────────┤             │
+│  │ Built  │ Plan    │ Structure│             │
+│  │ 1985   │ 3LDK   │ Wood    │             │
+│  ├────────┼─────────┼──────────┤             │
+│  │ Rights │ Road    │ Rebuild  │             │
+│  │ Free-  │ 4.0m   │ ✅ Yes  │             │
+│  │ hold   │        │         │             │
+│  └────────┴─────────┴──────────┘             │
+│                                               │
+│  What This Score Means                        │
+│  "This property scores well for investment... │
+│   Low natural disaster risk, rebuildable,     │
+│   but aging infrastructure nearby."           │
+│                                               │
+│  Source: SUUMO → [View original listing]      │
+│                                               │
+├─────────────────────────────────────────────┤
+│  Similar Properties (horizontal scroll)       │
+│  [Card] [Card] [Card] [Card] →               │
+└─────────────────────────────────────────────┘
+
+Mobile: Sticky bottom bar
+┌─────────────────────────────────────────────┐
+│  ¥6,000,000  │  [♥ Save]  [Start Deal →]   │
+└─────────────────────────────────────────────┘
+```
+
+---
+
+### BLOCK R — SEO & Marketing Engine
+*AkiyaMart gets organic traffic from prefecture/city landing pages. We need these to compete.*
+
+| # | Task | Status | Effort |
+|---|---|---|---|
+| **R-01** | **Prefecture landing pages (`/prefecture/[slug]`):** Server-rendered with ISR (revalidate 24h). Hero image per prefecture (Unsplash). Stats bar (listing count, avg price, population). 6-12 teaser PropertyCards. "Search all properties in {Prefecture} →" CTA. Internal links to cities within prefecture | `pending` | 4 hrs |
+| **R-02** | **City landing pages (`/city/[slug]`):** Same pattern as R-01 but city-level. Auto-generate for every municipality with 5+ listings. Include area description, nearby stations, lifestyle info | `pending` | 3 hrs |
+| **R-03** | **SEO content generation:** For each prefecture/city, generate English descriptions (area overview, climate, transport, lifestyle, investment outlook). Can use AI-assisted generation + manual review. Store in DB alongside municipality data | `pending` | 4 hrs |
+| **R-04** | **Dynamic sitemap update:** Add all `/prefecture/*` and `/city/*` URLs to sitemap.ts. Include lastmod from most recent listing update. Priority: prefecture=0.8, city=0.7, listing=0.6 | `pending` | 1 hr |
+| **R-05** | **Structured data (JSON-LD):** Add `RealEstateListing` schema to listing detail. Add `ItemList` schema to search results. Add `FAQPage` schema to FAQ. Add `Organization` schema to about page. Verify with Google Rich Results Test | `pending` | 2 hrs |
+| **R-06** | **Open Graph / social sharing:** Dynamic OG images for listings (property photo + price + score overlay). Prefecture/city pages get hero image as OG. Verify sharing looks good on Twitter, Facebook, LINE | `pending` | 3 hrs |
+| **R-07** | **Blog/guides infrastructure:** Create `/blog` route with MDX or CMS-driven content. Initial articles: "Complete Guide to Buying Akiya in Japan", "Understanding Japanese Property Hazard Data", "How Our 6-Dimension Score Works", "Japanese Real Estate Costs Explained" | `pending` | 4 hrs |
+| **R-08** | **Internal linking strategy:** Homepage → featured prefectures → cities → listings. Each listing → similar listings + same city. Blog posts → relevant search queries. Footer → all prefectures. Breadcrumbs on every page | `pending` | 2 hrs |
+
+**R-01 Details (Prefecture pages — SEO powerhouse):**
+```
+/prefecture/hokkaido
+┌─────────────────────────────────────────────┐
+│ [Hero: Hokkaido landscape photo]             │
+│                                               │
+│  Properties in Hokkaido (北海道)              │
+│  "Japan's northern frontier — vast landscapes│
+│   affordable housing, and outdoor lifestyle"  │
+│                                               │
+│  ┌──────┐ ┌────────┐ ┌──────────┐           │
+│  │ 1,234│ │ Avg    │ │ Pop      │           │
+│  │ Props│ │ ¥2.8M  │ │ 5.2M    │           │
+│  └──────┘ └────────┘ └──────────┘           │
+├─────────────────────────────────────────────┤
+│  Featured Listings                            │
+│  [Card] [Card] [Card]                        │
+│  [Card] [Card] [Card]                        │
+│                                               │
+│  [Search all 1,234 properties in Hokkaido →] │
+├─────────────────────────────────────────────┤
+│  Cities in Hokkaido                           │
+│  Sapporo (456) · Hakodate (89) · Asahikawa  │
+│  (67) · Otaru (45) · Obihiro (34) ...       │
+├─────────────────────────────────────────────┤
+│  About Hokkaido                               │
+│  [Area description, climate, transport,       │
+│   investment outlook, lifestyle info]         │
+└─────────────────────────────────────────────┘
+```
+
+---
+
+### BLOCK S — Email Alerts & Notification System
+*Users who save searches and get alerts convert at 5-10x the rate of casual browsers.*
+
+| # | Task | Status | Effort |
+|---|---|---|---|
+| **S-01** | **Choose and configure email provider:** Resend (recommended — React Email integration, generous free tier). Set up account, verify domain, get API key | `pending` | 30 min |
+| **S-02** | **Alert email template:** React Email template for property alert digest. Shows: alert name, X new listings matching your search, property cards (image, price, score, link), "View all on map →" CTA. Styled with our Japanese aesthetic colors | `pending` | 2 hrs |
+| **S-03** | **Alert worker (cron):** Supabase Edge Function or Next.js API cron (Vercel cron). Runs daily at 9am UTC. For each active alert: query new listings since last_sent_at matching alert's bbox + filters. If new results > 0, send email. Update last_sent_at | `pending` | 3 hrs |
+| **S-04** | **Instant alerts (Pro feature):** For Pro users with frequency=instant, trigger email within 1 hour of new matching listing being scraped. Use Supabase Realtime or webhook from scraper | `pending` | 3 hrs |
+| **S-05** | **Email preferences page:** In settings, allow users to manage: email frequency, unsubscribe from all, email address for alerts. One-click unsubscribe link in every email | `pending` | 2 hrs |
+| **S-06** | **Welcome email:** Send on signup: welcome message, "Here's what you can do", link to explore, link to set up first alert | `pending` | 1 hr |
+| **S-07** | **Price drop notifications:** Track price changes between scrapes. When a wishlisted property drops in price, send targeted email: "A property you saved just dropped ¥X!" | `pending` | 2 hrs |
+
+---
+
+### BLOCK T — Payments & Subscription Activation
+*Revenue requires working payments. AkiyaMart charges $6-15/mo.*
+
+| # | Task | Status | Effort |
+|---|---|---|---|
+| **T-01** | **Stripe account setup:** Create Stripe account, get API keys, configure webhook endpoint | `pending` | 30 min |
+| **T-02** | **Stripe products & prices:** Create 3 products (Free/Basic/Pro) with monthly + annual price variants. Match our pricing: Free $0, Basic $9/mo ($79/yr), Pro $29/mo ($249/yr) | `pending` | 30 min |
+| **T-03** | **Checkout flow:** Pricing page CTA → Stripe Checkout Session → redirect to /dashboard on success. Handle both monthly and annual billing | `pending` | 3 hrs |
+| **T-04** | **Webhook handler:** POST /api/billing/webhook — handle checkout.session.completed, subscription.updated, subscription.deleted, invoice.payment_failed. Update subscriptions table accordingly | `pending` | 3 hrs |
+| **T-05** | **Customer portal:** Allow users to manage billing, cancel, update payment method via Stripe Customer Portal. Link from settings page | `pending` | 1 hr |
+| **T-06** | **Feature gate enforcement:** Disable FREE_MODE. Enforce canAccess() checks: Free users get 5 listing views/day, limited wishlists, basic hazard data. Show upgrade prompts when hitting limits | `pending` | 3 hrs |
+| **T-07** | **Upgrade prompts (soft paywall):** When free user hits a limit, show modal: "Upgrade to Basic for unlimited listings" with feature comparison and checkout button. Don't block aggressively (avoid AkiyaMart's "pointless signup" mistake) | `pending` | 2 hrs |
+| **T-08** | **Free trial:** 7-day Pro trial for new signups. Show "X days left in trial" badge. Downgrade to Free automatically after trial expires | `pending` | 2 hrs |
+
+---
+
+### BLOCK U — Advanced Features (Differentiation)
+*These features put us AHEAD of AkiyaMart, not just matching them.*
+
+| # | Task | Status | Effort |
+|---|---|---|---|
+| **U-01** | **Property comparison tool:** Checkbox on property cards → "Compare (2/3)" floating button → comparison table (side-by-side: price, area, score, hazards, key facts) | `pending` | 4 hrs |
+| **U-02** | **Price history tracking:** Store price on each scrape. When price changes, record in `price_history` table. Show chart on listing detail (line graph: price over time). "Price dropped ¥X since first listed" badge | `pending` | 3 hrs |
+| **U-03** | **Neighborhood insights:** On listing detail, show 1km radius data: population density (from mesh data), nearest station + walk time, school count, medical facilities, convenience stores. Use MLIT Reinfolib data we already have client for | `pending` | 4 hrs |
+| **U-04** | **Airbnb eligibility estimate:** Based on use_zone, check if short-term rental is possible under minpaku law. Show "Airbnb Eligible: Likely/Unlikely/Restricted" badge with explanation. Use zone classification data from property + legal framework rules | `pending` | 3 hrs |
+| **U-05** | **Renovation cost estimator:** Based on building_area, year_built, structure: estimate renovation cost range. "Basic refresh: ¥2-4M, Full renovation: ¥5-10M, Rebuild: ¥15-25M". Add to financial calculator as optional input | `pending` | 2 hrs |
+| **U-06** | **Area investment score:** Per-municipality: combine population trend (declining/stable/growing), average price trend, vacancy rate, infrastructure score → "Investment Outlook: Growing/Stable/Declining" | `pending` | 3 hrs |
+| **U-07** | **Sold data / historical transactions:** Display MLIT transaction data for same area on listing detail. "Recent sales nearby: ¥X.XM avg (X transactions in 2025)". Confidence signal for pricing | `pending` | 3 hrs |
+| **U-08** | **Walking directions / Street View link:** Generate Google Maps walking directions link to nearest station. Generate Google Street View link at property coordinates. Show on listing detail | `pending` | 1 hr |
+| **U-09** | **PDF property report:** Generate downloadable PDF per listing: all property data, scores, hazards, map, comparables. Pro feature. Useful for sharing with advisors/agents | `pending` | 4 hrs |
+
+---
+
+### BLOCK V — Scale, Performance & Growth
+*Getting from 1,000 to 100,000+ listings and optimizing for real traffic.*
+
+| # | Task | Status | Effort |
+|---|---|---|---|
+| **V-01** | **Scale scraping to all 47 prefectures:** Run all 5 scrapers across all regions. Target: 50K+ listings in first month, 100K+ in 3 months. Monitor rate limits and adjust crawl delays | `pending` | ongoing |
+| **V-02** | **Deduplication pipeline:** Same property on multiple portals → merge into single property with multiple listings. Match by: fuzzy address + geo proximity (within 50m) + similar price (±20%). Flag for review if uncertain | `pending` | 4 hrs |
+| **V-03** | **Map performance at scale:** Implement server-side clustering for 100K+ markers. Use vector tiles instead of GeoJSON for map data. Lazy-load markers as viewport changes. Target: < 200ms map refresh | `pending` | 4 hrs |
+| **V-04** | **Search performance:** Add PostGIS `ST_MakeEnvelope` queries (replace simple lat/lng range). Add composite indexes on (prefecture_code, price_jpy, composite_score). Full-text search on address_en. Target: < 100ms search response | `pending` | 3 hrs |
+| **V-05** | **Image CDN:** Serve property images through Vercel Image Optimization or Cloudflare CDN. Auto-generate thumbnails (400px), medium (800px), full (1600px). Lazy load below-fold images | `pending` | 2 hrs |
+| **V-06** | **Stale listing detection:** Mark listings as "delisted" when scraper can't find them after 3 consecutive runs. Show "This listing may no longer be available" warning. Don't delete — keep for historical data | `pending` | 2 hrs |
+| **V-07** | **Error monitoring:** Set up Sentry for both Next.js and Python scraper. Alert on: scraper failures, API errors > 1% rate, DB connection issues | `pending` | 2 hrs |
+| **V-08** | **A/B test infrastructure:** Simple feature flag system for testing: different hero text, CTA colors, paywall thresholds. Track conversion events in GA4 | `pending` | 3 hrs |
+| **V-09** | **Brand & domain:** Finalize brand name, purchase domain, design logo (can use AI-assisted: Midjourney/DALL-E for initial concepts). Move from placeholder ◉ to real logo. Set up custom domain on Vercel | `pending` | manual |
+| **V-10** | **Buying service page (AkiyaMart Direct equivalent):** Landing page for agent-matched buying service. Intake form (budget, preferred area, timeline). Agent matching flow. This is future revenue but page should exist early for validation | `pending` | 4 hrs |
+
+---
+
+### Dependency Graph (Blocks O-V)
+
+```
+O (Live Data) ──────────┬──→ Q (Consumer UX — needs real data for stats/featured)
+                        │          ↑
+P (UI/UX Overhaul) ─────┘  (Q needs P's design foundation)
+                        │
+                        ├──→ R (SEO Pages — needs O data + Q components)
+                        ├──→ S (Email Alerts — needs O listings to alert about)
+                        ├──→ U (Advanced Features — needs O data)
+                        └──→ V (Scale — needs O pipeline running)
+
+                   Q ───→ T (Payments — needs consumer UX before charging)
+```
+
+**Key rule:** O and P can run in parallel. Everything else needs O. Q needs both O and P. R and T need Q.
+
+### Priority Execution Order (What To Do Next)
+
+```
+SESSION 1 (URGENT — unblocks everything):
+  O-01 through O-08: Get real data flowing
+  Result: 100+ real listings visible on live site
+
+SESSION 2 (CRITICAL — make it not embarrassing):
+  P-01 through P-05: Fix contrast, typography, colors, mobile nav
+  Result: Site passes WCAG AA, looks professional, works on mobile
+
+SESSION 3 (HIGH — consumer experience):
+  Q-01, Q-04, Q-08: Homepage, property detail, search cards redesign
+  O-09, O-10: Scale to 1,000+ listings, enable scheduler
+  Result: Looks like a real product, not an admin tool
+
+SESSION 4 (HIGH — SEO & growth):
+  R-01 through R-04: Prefecture/city landing pages + sitemap
+  Q-02, Q-05, Q-06: Stat counters, urgency hooks, trust signals
+  Result: Organic traffic starts flowing, users trust the product
+
+SESSION 5 (MEDIUM — retention & conversion):
+  S-01 through S-03: Email alerts working
+  Q-07, Q-09, Q-11: Dashboard redesign, alert prompts, score explanations
+  Result: Users return, engagement metrics improve
+
+SESSION 6 (MEDIUM — revenue):
+  T-01 through T-08: Stripe payments, feature gates, upgrade prompts
+  Result: Revenue-generating product
+
+SESSION 7+ (ONGOING — differentiation & scale):
+  U-01 through U-09: Advanced features
+  V-01 through V-10: Scale & performance
+  R-07, R-08: Blog content, internal linking
+  Result: Competitive with AkiyaMart, unique features they lack
+```
 
 ---
 
@@ -926,22 +958,24 @@ PARALLEL TRACK: K-01 → K-02 → K-03 + K-04 (parallel) → K-05 → K-06 → K
 
 ## 9. Python Scraper Microservice (Vultr)
 
-The existing Python scrapers remain on the Vultr VPS, adapted to work with the new Supabase database.
+**Status:** Code complete (Block K), NOT yet deployed to Vultr with production env vars.
+**Location:** `C:\Users\nilsb\Documents\Japan Scrapping Tool\backend\`
 
-### Changes needed:
-1. **Database connection:** Replace local PostgreSQL connection string with Supabase connection string
-2. **Image upload:** After scraping images, upload to Supabase Storage instead of local filesystem
-3. **Translation:** Add Google Translate API call in the scrape pipeline to translate `description` and `area_info` fields from Japanese to English
-4. **API endpoint:** Add a simple FastAPI endpoint so the Next.js app can trigger scrapes remotely
-5. **Cron scheduling:** Set up system cron to run scrapes on schedule (every 6 hours)
-6. **Health check:** Expose `/health` endpoint for monitoring
+### What's Built:
+- **5 Scrapers:** SUUMO (30s delay), HOME'S (5s), at home (5s), Akiya Banks (3s), BIT Auction (8s)
+- **Database:** SQLAlchemy async, Supabase PostgreSQL connection (auto-converts `postgres://` → `postgresql+asyncpg://`)
+- **Translation:** Google Cloud Translation API v2, auto-translates during scrape pipeline
+- **Image Upload:** Downloads from portal URLs → uploads to Supabase Storage bucket `property-images`
+- **Deduplication:** By source+source_listing_id, computes price_per_sqm
+- **Scoring stubs:** New properties auto-get hazard/score records with basic inline scoring
+- **Scheduler:** Configurable via `SCHEDULER_ENABLED` + `SCHEDULER_INTERVAL_HOURS` (default 6h)
 
 ### Scraper API:
 ```
-POST /api/scrape/trigger   — Start a scrape job (source, prefecture)
-GET  /api/scrape/status     — Get current job status
-GET  /api/scrape/history    — Get recent scrape jobs
-GET  /health                — Health check
+POST /api/scrape/trigger          — Start scrape job (requires X-API-Key)
+GET  /api/scrape/status/{job_id}  — Job status + task running state
+GET  /api/scrape/history          — Recent 20 jobs
+GET  /health                      — DB, sources, property count, service flags
 ```
 
 ---
@@ -1219,21 +1253,21 @@ japan-prop-search/
 
 ## 12. Migration Checklist (From Old App)
 
-Logic to port from Python → TypeScript:
-- [x] Scoring engine (6-dimension model) → `src/lib/scoring.ts` (**done** — Block I-03)
-- [x] Financial calculator (Japanese tax rules) → `src/lib/financial.ts` (**done** — Block I-02)
-- [x] Currency conversion → `src/lib/currency.ts` (**done** — Block B-12)
-- [ ] Address normalization → `lib/address.ts` (not yet needed)
-- [ ] Mesh code calculation → `lib/meshcode.ts` (not yet needed)
-- [ ] Hazard data interpretation → `lib/hazards.ts` (not yet needed — hazard display works from raw DB data)
+**Ported to TypeScript (Next.js):**
+- [x] Scoring engine → `src/lib/scoring.ts` (Block I-03)
+- [x] Financial calculator → `src/lib/financial.ts` (Block I-02)
+- [x] Currency conversion → `src/lib/currency.ts` (Block B-12)
 
-Logic that stays in Python (Vultr microservice):
-- [ ] All 5 scrapers (SUUMO, AtHome, Homes, BIT Auction, Akiya Banks)
-- [ ] Playwright browser automation
-- [ ] Deduplication service
-- [ ] Geocoding service (Nominatim)
-- [ ] Hazard API clients (J-SHIS, reinfolib)
-- [ ] Google Translate integration (new)
+**Stays in Python (Vultr microservice):**
+- [x] All 5 scrapers (SUUMO, AtHome, Homes, BIT Auction, Akiya Banks)
+- [x] Playwright browser automation
+- [x] Deduplication service (SupabasePropertyService)
+- [x] Google Translate integration (TranslateService)
+- [x] Image upload pipeline (ImageUploadService)
+- [ ] Geocoding service (Nominatim) — stubbed, not yet active
+- [ ] Hazard API clients (J-SHIS, reinfolib) — enrichment tasks stubbed
+- [ ] Address normalization — not yet needed
+- [ ] Mesh code calculation — not yet needed
 
 ---
 
@@ -1275,15 +1309,28 @@ RESEND_API_KEY=xxx
 
 ## 14. Open Decisions (To Be Resolved)
 
-- [ ] **Brand name:** Currently "JapanPropSearch" (placeholder). Need final name.
-- [ ] **Domain:** Need to purchase domain.
-- [ ] **Logo/branding:** Need logo design. Currently using ◉ text symbol.
-- [ ] **Hero images:** Need high-quality Japanese real estate/landscape photos (royalty-free or custom).
-- [ ] **Content:** City/prefecture descriptions for SEO landing pages (F-04/F-05).
-- [x] **Legal:** ~~Privacy policy, terms of service text~~ → **Done** (J-10). Pages at `/privacy` and `/terms`.
-- [ ] **Email provider:** Resend vs. SendGrid vs. AWS SES for alert emails.
-- [x] **Analytics:** ~~Google Analytics vs. Plausible~~ → **Chose GA4** (J-07). Conditional on NEXT_PUBLIC_GA_ID env var.
-- [ ] **Supabase project:** User needs to create Supabase project, provide DATABASE_URL, run `npm run db:push` and `npm run db:seed` (B-01 still pending).
+### Branding & Identity
+- [ ] **Brand name:** Currently "JapanPropSearch" (placeholder). Need final name. Ideas: AkiyaScope, JapanNest, PropWa (和), HouseWa
+- [ ] **Domain:** Need to purchase domain matching brand name
+- [ ] **Logo/branding:** Need logo design. Currently using ◉ text symbol. Consider: minimal Japanese-inspired mark, kanji element, or geometric house icon
+- [ ] **Hero images:** Need 10-15 high-quality Japanese real estate/landscape photos (Unsplash collections: "japanese countryside", "akiya", "traditional japanese house"). Need per-prefecture hero images for SEO pages
+
+### Technical Decisions
+- [ ] **Email provider:** Resend (recommended — React Email, good free tier, $0 for first 100/day) vs. SendGrid vs. AWS SES
+- [ ] **Map tiles:** Current OSM raster (ugly) vs. MapTiler Streets free (pretty, 100K loads/mo) vs. Mapbox free (50K loads/mo). MapTiler recommended
+- [ ] **Supabase schema push:** Block N added password_hash, role, contact_submissions — `db:push` NOT YET RUN
+- [ ] **Scraper deployment:** Vultr VPS needs: git pull, env vars configured, service restarted — NOT YET DONE
+- [ ] **Pricing strategy:** Our $9/$29 vs. AkiyaMart's $6/$15. We have more features but less data. Consider launching lower to build user base, raise later
+
+### Content Strategy
+- [ ] **City/prefecture descriptions:** Need English content for 47 prefectures + top 100 cities for SEO landing pages
+- [ ] **Blog articles:** Need 5-10 foundational articles for SEO (akiya buying guide, hazard data guide, scoring explanation, cost breakdown, foreigner buying FAQ)
+- [ ] **Social media:** Which platforms? (Reddit r/japanlife, Twitter/X, YouTube, podcasting)
+
+### Resolved
+- [x] **Legal:** ~~Privacy policy, terms of service text~~ → **Done** (J-10). Pages at `/privacy` and `/terms`
+- [x] **Analytics:** ~~Google Analytics vs. Plausible~~ → **Chose GA4** (J-07). Conditional on NEXT_PUBLIC_GA_ID env var
+- [x] **Supabase project:** Created in Tokyo region (project `oeephlppujidspbpujte`), 60 demo properties seeded
 
 ---
 
@@ -1334,70 +1381,70 @@ npm run db:studio    # Open Drizzle Studio (DB GUI)
 
 ## 17. What's Left to Build
 
-### URGENT: Next Session TODO (start here)
+> **Updated 2026-02-12:** Full roadmap based on AkiyaMart benchmark analysis and UI/UX audit.
+> **See Section 7b for complete gap analysis and Blocks O-V for detailed task lists.**
 
-These items must be done before the site works properly with Block N changes:
+### NEXT SESSION TODO (Start Here — Block O)
 
-#### 1. Push Block N schema changes to Supabase (5 min)
-Block N added 3 new columns and 1 new table to schema.ts but they haven't been migrated to the live database yet.
+**Goal: Get real data flowing. Nothing else matters until users see real listings.**
+
+#### Step 1: Infrastructure (15 min)
 ```bash
+# Push schema changes to Supabase
 cd C:\Users\nilsb\Documents\japan-prop-search
 npm run db:push
-```
-This will add:
-- `password_hash` column to `users` table (for bcrypt password hashing — N-08)
-- `role` column to `users` table (for admin role — N-09, defaults to "user")
-- `contact_submissions` table (for contact form — N-11)
 
-#### 2. Set yourself as admin (2 min)
-After db:push, set your user to admin so you can trigger scraper jobs:
-```sql
--- Run in Supabase SQL Editor or Drizzle Studio:
+# Set yourself as admin
+# In Supabase SQL Editor:
 UPDATE users SET role = 'admin' WHERE email = 'your-email@example.com';
 ```
-Or use `npm run db:studio` to edit the row visually.
 
-#### 3. Deploy updated Python scraper to Vultr (5 min)
-The scraper code is pushed to GitHub but needs to be pulled on the Vultr server:
+#### Step 2: Deploy Scraper to Vultr (15 min)
 ```bash
 ssh your-vultr-server
 cd /path/to/scraper
 git pull
-# Restart the scraper service (systemctl, pm2, or however it's managed)
+
+# Set environment variables:
+export DATABASE_URL="postgresql://..."          # Supabase connection string
+export GOOGLE_TRANSLATE_API_KEY="..."           # For English translations
+export SUPABASE_URL="https://xxx.supabase.co"  # For image uploads
+export SUPABASE_SERVICE_ROLE_KEY="..."          # For image uploads
+export SCRAPER_API_KEY="..."                    # For remote trigger auth
+
+# Restart service
 ```
-This deploys: hazard/score stub creation (N-01), null safety fix (N-02), status/history endpoints (N-03), enriched health (N-04).
 
-#### 4. Test the full pipeline (10 min)
-After steps 1-3:
-- Go to https://japan-prop-search.vercel.app/settings
-- Scraper Admin section should show "Online" with per-source stats
-- Trigger a scrape job → watch live status polling
-- Verify new properties appear in explore map with score stubs
-- Test login with email/password (should now require correct password)
-- Test contact form at /contact
-- Test similar properties section on any listing detail page
+#### Step 3: First Real Scrape (30 min)
+- Trigger SUUMO scrape for Tokyo via admin panel or API
+- Watch job status polling in real-time
+- Verify: properties appear on map, images load, translations work
 
----
+#### Step 4: Scale Up (2 hrs)
+- Run all 5 scrapers across 5-10 prefectures
+- Target: 1,000+ real listings
+- Enable scheduler (SCHEDULER_ENABLED=true)
+- Set up Google OAuth
 
-### Remaining Deferred Features (not blocking launch)
+### After Data Is Flowing — UI/UX Overhaul (Block P)
+1. Fix color contrast (fails WCAG AA — biggest accessibility issue)
+2. Typography hierarchy (everything is text-sm, needs scale)
+3. Mobile navigation (currently broken — no hamburger/bottom nav)
+4. Warm Japanese aesthetic colors (replace cold grays)
+5. Micro-animations (hover, count-up, transitions)
 
-| Priority | Feature | What's needed | Effort |
-|---|---|---|---|
-| **High** | Real property data | Run scraper on Vultr, verify properties flow to Next.js app | 1 session |
-| **High** | Google OAuth | Set up Google Cloud Console, add client ID/secret to Vercel env | 30 min (manual) |
-| **Medium** | F-04/F-05/F-06 — City/prefecture SEO landing pages | `/city/[slug]`, `/prefecture/[slug]` with ISR — needs real data in DB first | 1 session |
-| **Medium** | H-09/H-10 — Alert email worker + template | Choose email provider (Resend recommended), implement cron/Edge Function | 1 session |
-| **Low** | G-11 — Subscription activation (Stripe) | Set up Stripe account, webhook, checkout flow | 1-2 sessions |
-| **Low** | Domain purchase + custom domain on Vercel | Buy domain, add to Vercel project settings | 15 min (manual) |
-| **Low** | Logo/branding | Design logo, replace ◉ text symbol | Manual/design task |
-| **Low** | Hero images | Get high-quality Japanese real estate photos (Unsplash/custom) | Manual task |
+### After UI Is Decent — Consumer Experience (Block Q)
+1. Homepage that creates desire (hero stats, featured listings)
+2. Property detail page that sells (hero images, price prominent, score explanation)
+3. Search cards that attract (image-first, specs row, urgency badges)
+4. Remove admin controls from consumer views
 
-### Suggested Next Session Priority
-
-1. **Run `db:push` + set admin role + deploy scraper to Vultr** (steps 1-3 above)
-2. **Trigger a real scrape** and verify the full data pipeline works end-to-end
-3. **Google OAuth setup** (Google Cloud Console → Vercel env vars)
-4. **City/Prefecture SEO pages** (F-04/F-05/F-06) — now possible with real data
+### Full Roadmap
+See Blocks O through V in Section 7b for 80+ detailed tasks across 6 phases:
+- **Phase 1 (O+P):** Live data + UI fix → 10% to 30%
+- **Phase 2 (Q+R):** Consumer UX + SEO → 30% to 55%
+- **Phase 3 (S+T):** Alerts + Payments → 55% to 75%
+- **Phase 4 (U+V):** Advanced features + Scale → 75% to 90%+
 
 ---
 
@@ -1438,5 +1485,5 @@ After steps 1-3:
 
 ---
 
-*Last updated: 2026-02-11*
-*Version: 6.0 — Block N complete. Market-ready improvements (security, pipeline fixes, contact, similar properties).*
+*Last updated: 2026-02-12*
+*Version: 7.0 — Added AkiyaMart benchmark analysis, UI/UX audit, gap analysis, and Blocks O-V roadmap (80+ tasks across 6 phases). Previous: Block N complete.*

@@ -1,41 +1,29 @@
 services:
-  db:
-    image: postgres:16-alpine
-    container_name: japan-reit-db
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-japan_reit}
-      POSTGRES_USER: ${POSTGRES_USER:-japan_reit}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.production}
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-japan_reit}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - app-network
-
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: japan-reit-backend
     restart: unless-stopped
-    depends_on:
-      db:
-        condition: service_healthy
     environment:
-      - USE_SQLITE=false
-      - DB_HOST=db
-      - DB_PORT=5432
-      - POSTGRES_USER=${POSTGRES_USER:-japan_reit}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_DB=${POSTGRES_DB:-japan_reit}
+      # Database — Supabase PostgreSQL (no local DB needed)
+      - DATABASE_URL=${DATABASE_URL:?Set DATABASE_URL in .env.production}
+      # Security
+      - SCRAPER_API_KEY=${SCRAPER_API_KEY:?Set SCRAPER_API_KEY in .env.production}
+      # Supabase Storage (for image uploads)
+      - SUPABASE_URL=${SUPABASE_URL:-}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-}
+      - SUPABASE_STORAGE_BUCKET=${SUPABASE_STORAGE_BUCKET:-property-images}
+      # Google Translate
+      - GOOGLE_TRANSLATE_API_KEY=${GOOGLE_TRANSLATE_API_KEY:-}
+      # Hazard data
       - REINFOLIB_API_KEY=${REINFOLIB_API_KEY:-}
-      - SCHEDULER_ENABLED=${SCHEDULER_ENABLED:-true}
+      # Scheduler
+      - SCHEDULER_ENABLED=${SCHEDULER_ENABLED:-false}
       - SCHEDULER_INTERVAL_HOURS=${SCHEDULER_INTERVAL_HOURS:-6}
+      # CORS — allowed origins for the API
+      - CORS_ORIGINS=${CORS_ORIGINS:-https://japan-prop-search.vercel.app,http://localhost:3000}
+      # App
       - APP_ENV=production
       - APP_DEBUG=false
     volumes:
@@ -44,7 +32,7 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
-      start_period: 30s
+      start_period: 60s
       retries: 3
     networks:
       - app-network
@@ -66,7 +54,6 @@ services:
       - app-network
 
 volumes:
-  pgdata:
   backend-data:
 
 networks:

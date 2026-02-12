@@ -21,6 +21,7 @@ from sqlalchemy import (
     SmallInteger,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -91,7 +92,10 @@ class NewPropertyListing(Base):
     """Maps to Drizzle 'property_listings' table."""
 
     __tablename__ = "property_listings"
-    __table_args__ = {"extend_existing": True}
+    __table_args__ = (
+        UniqueConstraint("source_id", "source_listing_id", name="uq_property_listings_source"),
+        {"extend_existing": True},
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     property_id: Mapped[int] = mapped_column(

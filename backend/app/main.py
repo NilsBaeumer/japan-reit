@@ -14,6 +14,14 @@ logger = structlog.get_logger()
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("Starting Japan REIT API", env=settings.app_env)
+
+    # Validate production configuration
+    warnings = settings.validate_production()
+    for w in warnings:
+        logger.warning("Config warning", message=w)
+    if any("required" in w for w in warnings):
+        raise RuntimeError(f"Critical config errors: {'; '.join(w for w in warnings if 'required' in w)}")
+
     # Auto-create scraper infrastructure tables (NOT property data tables)
     from app.database import create_all_tables
     import app.models  # noqa: F401 — ensure all models are registered
@@ -47,7 +55,7 @@ def create_app() -> FastAPI:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:5173", "http://localhost:3000", "*"],
+        allow_origins=settings.cors_origin_list,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

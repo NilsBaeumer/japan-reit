@@ -76,6 +76,9 @@ class Settings(BaseSettings):
     # MLIT reinfolib API
     reinfolib_api_key: str = ""
 
+    # CORS — allowed origins (comma-separated, or "*" for dev only)
+    cors_origins: str = "http://localhost:5173,http://localhost:3000"
+
     # Scraping
     scrape_default_delay: float = 3.0
     scrape_max_retries: int = 3
@@ -83,6 +86,25 @@ class Settings(BaseSettings):
     # Scheduler (periodic scraping)
     scheduler_enabled: bool = False
     scheduler_interval_hours: float = 6.0
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        """Parse CORS_ORIGINS into a list."""
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    def validate_production(self) -> list[str]:
+        """Check critical env vars for production. Returns list of warnings."""
+        warnings = []
+        if self.app_env == "production":
+            if not self.database_url:
+                warnings.append("DATABASE_URL is required in production")
+            if not self.scraper_api_key:
+                warnings.append("SCRAPER_API_KEY is required in production")
+            if not self.supabase_url or not self.supabase_service_role_key:
+                warnings.append("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY recommended for image uploads")
+            if not self.google_translate_api_key:
+                warnings.append("GOOGLE_TRANSLATE_API_KEY recommended for translations")
+        return warnings
 
 
 settings = Settings()
