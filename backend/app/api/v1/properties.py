@@ -29,9 +29,11 @@ async def list_properties(
     if search:
         query = query.where(Property.address_ja.ilike(f"%{search}%"))
     if price_min is not None:
-        query = query.where(Property.price >= price_min)
+        query = query.where(Property.price_jpy >= price_min)
     if price_max is not None:
-        query = query.where(Property.price <= price_max)
+        query = query.where(Property.price_jpy <= price_max)
+    if prefecture_code:
+        query = query.where(Property.prefecture_code == prefecture_code)
     if municipality_code:
         query = query.where(Property.municipality_code == municipality_code)
     if min_score is not None:
@@ -77,16 +79,16 @@ async def properties_geojson(
 ):
     query = select(Property).where(
         Property.status == status,
-        Property.latitude.isnot(None),
-        Property.longitude.isnot(None),
+        Property.lat.isnot(None),
+        Property.lng.isnot(None),
     )
 
     if search:
         query = query.where(Property.address_ja.ilike(f"%{search}%"))
     if price_min is not None:
-        query = query.where(Property.price >= price_min)
+        query = query.where(Property.price_jpy >= price_min)
     if price_max is not None:
-        query = query.where(Property.price <= price_max)
+        query = query.where(Property.price_jpy <= price_max)
     if municipality_code:
         query = query.where(Property.municipality_code == municipality_code)
     if min_score is not None:
@@ -99,16 +101,16 @@ async def properties_geojson(
 
     features = []
     for p in properties:
-        if p.latitude is not None and p.longitude is not None:
+        if p.lat is not None and p.lng is not None:
             features.append({
                 "type": "Feature",
                 "geometry": {
                     "type": "Point",
-                    "coordinates": [p.longitude, p.latitude],
+                    "coordinates": [p.lng, p.lat],
                 },
                 "properties": {
                     "id": str(p.id),
-                    "price": p.price,
+                    "price": p.price_jpy,
                     "score": float(p.composite_score) if p.composite_score else None,
                     "address": p.address_ja,
                     "floor_plan": p.floor_plan,
@@ -143,12 +145,9 @@ async def get_property(property_id: str, db: AsyncSession = Depends(get_db)):
     data["listings"] = [
         {
             "id": str(l.id),
-            "source": l.source,
+            "source": l.source_id,
             "source_url": l.source_url,
-            "raw_price": l.raw_price,
-            "raw_title": l.raw_title,
             "listing_status": l.listing_status,
-            "first_scraped_at": l.first_scraped_at.isoformat() if l.first_scraped_at else None,
             "last_scraped_at": l.last_scraped_at.isoformat() if l.last_scraped_at else None,
         }
         for l in listings
@@ -183,7 +182,7 @@ async def geocode_properties(
         select(sqlfunc.count())
         .select_from(
             select(Property)
-            .where(Property.latitude.is_(None), Property.address_ja.isnot(None))
+            .where(Property.lat.is_(None), Property.address_ja.isnot(None))
             .subquery()
         )
     )
@@ -200,12 +199,14 @@ async def geocode_properties(
 def _property_to_dict(p: Property) -> dict:
     return {
         "id": str(p.id),
+        "prefecture_code": p.prefecture_code,
         "municipality_code": p.municipality_code,
         "address_ja": p.address_ja,
-        "property_type": p.property_type,
-        "latitude": p.latitude,
-        "longitude": p.longitude,
-        "price": p.price,
+        "address_en": p.address_en,
+        "latitude": p.lat,
+        "longitude": p.lng,
+        "price": p.price_jpy,
+        "price_per_sqm": float(p.price_per_sqm) if p.price_per_sqm else None,
         "land_area_sqm": float(p.land_area_sqm) if p.land_area_sqm else None,
         "building_area_sqm": float(p.building_area_sqm) if p.building_area_sqm else None,
         "floor_plan": p.floor_plan,
@@ -213,15 +214,14 @@ def _property_to_dict(p: Property) -> dict:
         "structure": p.structure,
         "floors": p.floors,
         "road_width_m": float(p.road_width_m) if p.road_width_m else None,
-        "road_frontage_m": float(p.road_frontage_m) if p.road_frontage_m else None,
         "rebuild_possible": p.rebuild_possible,
-        "city_planning_zone": p.city_planning_zone,
         "use_zone": p.use_zone,
         "coverage_ratio": float(p.coverage_ratio) if p.coverage_ratio else None,
         "floor_area_ratio": float(p.floor_area_ratio) if p.floor_area_ratio else None,
         "composite_score": float(p.composite_score) if p.composite_score else None,
         "status": p.status,
-        "first_seen_at": p.first_seen_at.isoformat() if p.first_seen_at else None,
-        "last_seen_at": p.last_seen_at.isoformat() if p.last_seen_at else None,
+        "description_ja": p.description_ja,
+        "description_en": p.description_en,
         "created_at": p.created_at.isoformat() if p.created_at else None,
+        "updated_at": p.updated_at.isoformat() if p.updated_at else None,
     }
