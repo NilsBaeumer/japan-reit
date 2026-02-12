@@ -70,8 +70,9 @@ async def run_scrape_job_async(job_id: str):
             )
             new_count = 0
             updated_count = 0
+            batch_size = 25  # Commit every N listings to avoid losing progress
 
-            for raw_listing in listings:
+            for i, raw_listing in enumerate(listings):
                 try:
                     # Use a savepoint so one failure doesn't kill the whole batch
                     async with session.begin_nested():
@@ -88,6 +89,11 @@ async def run_scrape_job_async(job_id: str):
                         error=str(e),
                     )
                     scrape_result.errors.append(f"Upsert failed: {raw_listing.source_id}: {e}")
+
+                # Commit in batches to persist progress incrementally
+                if (i + 1) % batch_size == 0:
+                    await session.commit()
+                    logger.info("Batch committed", processed=i + 1, new=new_count, updated=updated_count)
 
             await session.commit()
 
