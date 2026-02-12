@@ -67,7 +67,7 @@ class SupabasePropertyService:
             # Create new property
             prop = NewProperty(
                 address_ja=raw.address or "Unknown",
-                price_jpy=raw.price or 0,
+                price_jpy=raw.price if raw.price is not None else 0,
                 status="active",
             )
             self._update_property_fields(prop, raw)
@@ -90,7 +90,12 @@ class SupabasePropertyService:
             self.session.add(hazard)
 
             # Create stub property score with basic inline computation
-            score = NewPropertyScore(property_id=prop.id)
+            score = NewPropertyScore(
+                property_id=prop.id,
+                rebuild_score=0, hazard_score=0, infrastructure_score=0,
+                demographic_score=0, value_score=0, condition_score=0,
+                composite_score=0,
+            )
             # Compute basic scores from raw data
             if raw.price and raw.land_area_sqm and raw.land_area_sqm > 0:
                 ppsm = raw.price / raw.land_area_sqm
@@ -131,10 +136,10 @@ class SupabasePropertyService:
                 "demographic": score.demographic_score,
                 "value": score.value_score, "condition": score.condition_score,
             }
-            total_weight = sum(w for k, w in weights.items() if scores[k] > 0)
+            total_weight = sum(w for k, w in weights.items() if (scores[k] or 0) > 0)
             if total_weight > 0:
                 score.composite_score = sum(
-                    scores[k] * weights[k] for k in weights if scores[k] > 0
+                    (scores[k] or 0) * weights[k] for k in weights if (scores[k] or 0) > 0
                 ) / total_weight
             self.session.add(score)
 
