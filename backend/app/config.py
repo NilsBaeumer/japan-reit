@@ -61,6 +61,7 @@ class Settings(BaseSettings):
     supabase_url: str = ""
     supabase_service_role_key: str = ""
     supabase_storage_bucket: str = "property-images"
+    disable_image_upload: bool = False
 
     # Google Translate
     google_translate_api_key: str = ""

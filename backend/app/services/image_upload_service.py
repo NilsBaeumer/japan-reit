@@ -27,6 +27,8 @@ class ImageUploadService:
 
     @property
     def is_available(self) -> bool:
+        if settings.disable_image_upload:
+            return False
         return bool(self.supabase_url and self.service_role_key)
 
     async def _get_client(self) -> httpx.AsyncClient:
