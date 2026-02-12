@@ -154,10 +154,21 @@ def get_task_status(job_id: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 async def _scheduler_loop(interval_hours: float = 6.0):
-    """Periodically create scrape jobs for all enabled sources."""
-    from sqlalchemy import select
+    """Periodically create scrape jobs for all enabled sources across all prefectures.
+
+    For each enabled source, iterates all 47 prefectures and creates a job if:
+    - No active (pending/running) job exists for that source+prefecture combo
+    - No completed job exists within the interval window for that combo
+
+    Limits concurrent jobs per source to avoid overloading the VPS.
+    """
+    from sqlalchemy import select, func as sqlfunc
     from app.database import async_session
     from app.models.scraping import ScrapeSource, ScrapeJob
+
+    # All 47 Japanese prefecture codes
+    ALL_PREFECTURES = [f"{i:02d}" for i in range(1, 48)]
+    MAX_CONCURRENT_PER_SOURCE = 3  # Don't flood with too many parallel scrapes
 
     interval_seconds = interval_hours * 3600
     logger.info("Scheduler started", interval_hours=interval_hours)
@@ -173,51 +184,78 @@ async def _scheduler_loop(interval_hours: float = 6.0):
                 )
                 sources = result.scalars().all()
 
+                dispatched = 0
                 for source in sources:
-                    existing = await session.execute(
-                        select(ScrapeJob).where(
-                            ScrapeJob.source_id == source.id,
-                            ScrapeJob.status.in_(["pending", "running"]),
+                    # Count active jobs for this source
+                    active_count_q = await session.execute(
+                        select(sqlfunc.count()).select_from(
+                            select(ScrapeJob).where(
+                                ScrapeJob.source_id == source.id,
+                                ScrapeJob.status.in_(["pending", "running"]),
+                            ).subquery()
                         )
                     )
-                    if existing.scalar_one_or_none():
-                        logger.debug("Skipping — job already active", source=source.id)
+                    active_count = active_count_q.scalar() or 0
+
+                    if active_count >= MAX_CONCURRENT_PER_SOURCE:
+                        logger.debug("Skipping — max concurrent reached",
+                                     source=source.id, active=active_count)
                         continue
 
-                    last_job_q = await session.execute(
-                        select(ScrapeJob)
-                        .where(
-                            ScrapeJob.source_id == source.id,
-                            ScrapeJob.status == "completed",
-                        )
-                        .order_by(ScrapeJob.completed_at.desc())
-                        .limit(1)
-                    )
-                    last_job = last_job_q.scalar_one_or_none()
+                    slots = MAX_CONCURRENT_PER_SOURCE - active_count
 
-                    if last_job and last_job.completed_at:
-                        elapsed = (datetime.now(timezone.utc) - last_job.completed_at).total_seconds()
-                        if elapsed < interval_seconds:
-                            logger.debug(
-                                "Skipping — recently scraped",
-                                source=source.id,
-                                elapsed_h=round(elapsed / 3600, 1),
+                    for pref_code in ALL_PREFECTURES:
+                        if slots <= 0:
+                            break
+
+                        # Check for active job on this source+prefecture
+                        existing = await session.execute(
+                            select(ScrapeJob).where(
+                                ScrapeJob.source_id == source.id,
+                                ScrapeJob.prefecture_code == pref_code,
+                                ScrapeJob.status.in_(["pending", "running"]),
                             )
+                        )
+                        if existing.scalar_one_or_none():
                             continue
 
-                    job = ScrapeJob(
-                        source_id=source.id,
-                        status="pending",
-                        search_params=source.config.get("default_params", {}) if source.config else {},
-                    )
-                    session.add(job)
-                    await session.flush()
+                        # Check if recently completed for this prefecture
+                        last_job_q = await session.execute(
+                            select(ScrapeJob)
+                            .where(
+                                ScrapeJob.source_id == source.id,
+                                ScrapeJob.prefecture_code == pref_code,
+                                ScrapeJob.status == "completed",
+                            )
+                            .order_by(ScrapeJob.completed_at.desc())
+                            .limit(1)
+                        )
+                        last_job = last_job_q.scalar_one_or_none()
 
-                    job_id = str(job.id)
-                    await session.commit()
+                        if last_job and last_job.completed_at:
+                            elapsed = (datetime.now(timezone.utc) - last_job.completed_at).total_seconds()
+                            if elapsed < interval_seconds:
+                                continue
 
-                    dispatch_scrape_job(job_id)
-                    logger.info("Scheduler dispatched scrape job", source=source.id, job_id=job_id)
+                        job = ScrapeJob(
+                            source_id=source.id,
+                            prefecture_code=pref_code,
+                            status="pending",
+                            search_params=source.config.get("default_params", {}) if source.config else {},
+                        )
+                        session.add(job)
+                        await session.flush()
+
+                        job_id = str(job.id)
+                        await session.commit()
+
+                        dispatch_scrape_job(job_id)
+                        dispatched += 1
+                        slots -= 1
+                        logger.info("Scheduler dispatched scrape job",
+                                    source=source.id, prefecture=pref_code, job_id=job_id)
+
+                logger.info("Scheduler tick complete", dispatched=dispatched)
 
         except asyncio.CancelledError:
             logger.info("Scheduler cancelled")
