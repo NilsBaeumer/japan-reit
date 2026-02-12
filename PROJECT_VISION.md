@@ -1334,35 +1334,90 @@ npm run db:studio    # Open Drizzle Studio (DB GUI)
 
 ## 17. What's Left to Build
 
-### Remaining Blocks:
-- **None** — All 86 tasks across 12 blocks are complete (some deferred tasks remain).
+### URGENT: Next Session TODO (start here)
 
-### Deferred Tasks:
-- ~~**E-09** — Similar properties~~ **DONE** (Block N-10)
-- **F-04/F-05/F-06** — City/prefecture SEO landing pages (needs live DB)
-- ~~**F-09** — Contact page~~ **DONE** (Block N-11)
-- **G-11** — Subscription activation (Stripe integration)
-- **H-09/H-10** — Alert email worker + template (needs email provider)
+These items must be done before the site works properly with Block N changes:
 
-### Pre-Launch Blockers:
-- ~~**B-01** — User must create Supabase project and provide DATABASE_URL~~ **DONE** (Block M)
-- ~~Vercel deployment~~ **DONE** — https://japan-prop-search.vercel.app
-- Real property data (connect Vultr scraper to Supabase)
-- Domain purchase
-- Google OAuth setup (Google Cloud Console)
+#### 1. Push Block N schema changes to Supabase (5 min)
+Block N added 3 new columns and 1 new table to schema.ts but they haven't been migrated to the live database yet.
+```bash
+cd C:\Users\nilsb\Documents\japan-prop-search
+npm run db:push
+```
+This will add:
+- `password_hash` column to `users` table (for bcrypt password hashing — N-08)
+- `role` column to `users` table (for admin role — N-09, defaults to "user")
+- `contact_submissions` table (for contact form — N-11)
+
+#### 2. Set yourself as admin (2 min)
+After db:push, set your user to admin so you can trigger scraper jobs:
+```sql
+-- Run in Supabase SQL Editor or Drizzle Studio:
+UPDATE users SET role = 'admin' WHERE email = 'your-email@example.com';
+```
+Or use `npm run db:studio` to edit the row visually.
+
+#### 3. Deploy updated Python scraper to Vultr (5 min)
+The scraper code is pushed to GitHub but needs to be pulled on the Vultr server:
+```bash
+ssh your-vultr-server
+cd /path/to/scraper
+git pull
+# Restart the scraper service (systemctl, pm2, or however it's managed)
+```
+This deploys: hazard/score stub creation (N-01), null safety fix (N-02), status/history endpoints (N-03), enriched health (N-04).
+
+#### 4. Test the full pipeline (10 min)
+After steps 1-3:
+- Go to https://japan-prop-search.vercel.app/settings
+- Scraper Admin section should show "Online" with per-source stats
+- Trigger a scrape job → watch live status polling
+- Verify new properties appear in explore map with score stubs
+- Test login with email/password (should now require correct password)
+- Test contact form at /contact
+- Test similar properties section on any listing detail page
+
+---
+
+### Remaining Deferred Features (not blocking launch)
+
+| Priority | Feature | What's needed | Effort |
+|---|---|---|---|
+| **High** | Real property data | Run scraper on Vultr, verify properties flow to Next.js app | 1 session |
+| **High** | Google OAuth | Set up Google Cloud Console, add client ID/secret to Vercel env | 30 min (manual) |
+| **Medium** | F-04/F-05/F-06 — City/prefecture SEO landing pages | `/city/[slug]`, `/prefecture/[slug]` with ISR — needs real data in DB first | 1 session |
+| **Medium** | H-09/H-10 — Alert email worker + template | Choose email provider (Resend recommended), implement cron/Edge Function | 1 session |
+| **Low** | G-11 — Subscription activation (Stripe) | Set up Stripe account, webhook, checkout flow | 1-2 sessions |
+| **Low** | Domain purchase + custom domain on Vercel | Buy domain, add to Vercel project settings | 15 min (manual) |
+| **Low** | Logo/branding | Design logo, replace ◉ text symbol | Manual/design task |
+| **Low** | Hero images | Get high-quality Japanese real estate photos (Unsplash/custom) | Manual task |
+
+### Suggested Next Session Priority
+
+1. **Run `db:push` + set admin role + deploy scraper to Vultr** (steps 1-3 above)
+2. **Trigger a real scrape** and verify the full data pipeline works end-to-end
+3. **Google OAuth setup** (Google Cloud Console → Vercel env vars)
+4. **City/Prefecture SEO pages** (F-04/F-05/F-06) — now possible with real data
+
+---
 
 ### Source Code Locations:
-- **New Next.js app:** `C:\Users\nilsb\Documents\japan-prop-search\`
-- **Python scrapers (existing):** `C:\Users\nilsb\Documents\Japan Scrapping Tool\`
+- **Next.js app:** `C:\Users\nilsb\Documents\japan-prop-search\`
+- **Python scrapers:** `C:\Users\nilsb\Documents\Japan Scrapping Tool\`
   - Financial service: `backend\app\services\financial_service.py` (ported to TS)
   - Scoring engine: `backend\app\services\scoring_engine.py` (ported to TS)
 
 ### Production Infrastructure:
 - **Vercel:** https://japan-prop-search.vercel.app (auto-deploys from GitHub master)
 - **Supabase:** Project `oeephlppujidspbpujte` (Tokyo region)
-  - Database: 17 tables, 60 demo properties seeded
+  - Database: 18 tables (+contact_submissions), 60 demo properties seeded
   - Uses transaction pooler (port 6543) for serverless compatibility
-- **GitHub:** https://github.com/NilsBaeumer/japan-prop-search (private)
+  - **PENDING:** db:push needed for Block N schema changes (password_hash, role, contact_submissions)
+- **GitHub:**
+  - Next.js: https://github.com/NilsBaeumer/japan-prop-search (private)
+  - Scraper: https://github.com/NilsBaeumer/japan-reit (private)
+- **Vultr:** Scraper microservice (FastAPI + Playwright)
+  - **PENDING:** git pull needed for Block N scraper fixes
 
 ### Block M Notes (Deployment — 2026-02-11):
 - Supabase project created in Tokyo region, schema pushed via `drizzle-kit push`, 60 demo properties seeded
@@ -1371,6 +1426,15 @@ npm run db:studio    # Open Drizzle Studio (DB GUI)
 - Fixed: DATABASE_URL sanitizer strips whitespace (Vercel env var copy-paste issue)
 - Fixed: postgres driver configured with `ssl: "require"`, `prepare: false` for transaction pooler
 - Health endpoint at `/api/health` for monitoring
+
+### Block N Notes (Market-Ready — 2026-02-11):
+- 13 tasks completed across both codebases (4 Python scraper, 9 Next.js)
+- Security: bcrypt password hashing, admin role with 403 enforcement
+- Pipeline: new properties auto-get hazard/score stubs with inline scoring
+- Features: similar properties, contact page, dynamic sitemap, profile save/delete
+- Scraper admin: per-source stats, live job polling, expandable job history
+- Build: 39 pages clean. Both repos committed and pushed.
+- **Schema migration NOT YET RUN** — must run `db:push` before Vercel deployment works fully
 
 ---
 
