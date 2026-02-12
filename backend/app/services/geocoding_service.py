@@ -98,7 +98,7 @@ class GeocodingService:
         result = await session.execute(
             select(Property)
             .where(
-                Property.latitude.is_(None),
+                Property.lat.is_(None),
                 Property.address_ja.isnot(None),
             )
             .limit(limit)
@@ -115,8 +115,8 @@ class GeocodingService:
             coords = await self.geocode_address(prop.address_ja)
 
             if coords:
-                prop.latitude = coords[0]
-                prop.longitude = coords[1]
+                prop.lat = coords[0]
+                prop.lng = coords[1]
                 stats["success"] += 1
             else:
                 stats["failed"] += 1
