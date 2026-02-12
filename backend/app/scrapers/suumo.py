@@ -50,6 +50,23 @@ SUUMO_REGION_CODES = {
 PRICE_CODES = [50, 100, 150, 200, 300, 400, 500, 600, 700, 800, 1000, 1500, 2000, 3000, 5000]
 
 
+# Reverse lookup: prefecture name → JIS code
+_PREFECTURE_CODE_BY_NAME: dict[str, str] = {
+    "北海道": "01", "青森県": "02", "岩手県": "03", "宮城県": "04",
+    "秋田県": "05", "山形県": "06", "福島県": "07", "茨城県": "08",
+    "栃木県": "09", "群馬県": "10", "埼玉県": "11", "千葉県": "12",
+    "東京都": "13", "神奈川県": "14", "新潟県": "15", "富山県": "16",
+    "石川県": "17", "福井県": "18", "山梨県": "19", "長野県": "20",
+    "岐阜県": "21", "静岡県": "22", "愛知県": "23", "三重県": "24",
+    "滋賀県": "25", "京都府": "26", "大阪府": "27", "兵庫県": "28",
+    "奈良県": "29", "和歌山県": "30", "鳥取県": "31", "島根県": "32",
+    "岡山県": "33", "広島県": "34", "山口県": "35", "徳島県": "36",
+    "香川県": "37", "愛媛県": "38", "高知県": "39", "福岡県": "40",
+    "佐賀県": "41", "長崎県": "42", "熊本県": "43", "大分県": "44",
+    "宮崎県": "45", "鹿児島県": "46", "沖縄県": "47",
+}
+
+
 def _price_to_suumo_code(price_yen: int) -> int:
     """Convert yen price to the nearest SUUMO price code (万円)."""
     man = price_yen // 10_000
@@ -248,6 +265,20 @@ class SuumoScraper(AbstractScraper):
             if year_match and not year_built:
                 year_built = int(year_match.group(1))
 
+        # Fall back to raw_data for address if card selector missed it
+        if not address:
+            address = raw_data.get("所在地") or raw_data.get("住所")
+
+        # Extract prefecture code from address
+        prefecture = None
+        if address:
+            pref_match = re.match(
+                r"(北海道|東京都|(?:京都|大阪)府|.{2,3}県)", address
+            )
+            if pref_match:
+                pref_name = pref_match.group(1)
+                prefecture = _PREFECTURE_CODE_BY_NAME.get(pref_name)
+
         # Must have at least address or price to be valid
         if not address and not price:
             return None
@@ -259,6 +290,7 @@ class SuumoScraper(AbstractScraper):
             title=self._extract_title(card),
             price=price,
             address=address,
+            prefecture=prefecture,
             land_area_sqm=land_area,
             building_area_sqm=building_area,
             floor_plan=floor_plan,
