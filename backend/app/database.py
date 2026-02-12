@@ -36,7 +36,7 @@ else:
     # asyncpg's prepared statement cache conflicts with PgBouncer, so we disable it.
     _engine_kwargs["pool_size"] = 5
     _engine_kwargs["max_overflow"] = 5
-    _engine_kwargs["connect_args"] = {"prepared_statement_cache_size": 0}
+    _engine_kwargs["connect_args"] = {"statement_cache_size": 0}
     _engine_kwargs["pool_pre_ping"] = True
 
 engine = create_async_engine(_db_url, **_engine_kwargs)
