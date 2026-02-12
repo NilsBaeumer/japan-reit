@@ -73,11 +73,13 @@ async def run_scrape_job_async(job_id: str):
 
             for raw_listing in listings:
                 try:
-                    is_new = await property_service.upsert_from_listing(raw_listing)
-                    if is_new:
-                        new_count += 1
-                    else:
-                        updated_count += 1
+                    # Use a savepoint so one failure doesn't kill the whole batch
+                    async with session.begin_nested():
+                        is_new = await property_service.upsert_from_listing(raw_listing)
+                        if is_new:
+                            new_count += 1
+                        else:
+                            updated_count += 1
                 except Exception as e:
                     logger.warning(
                         "Failed to upsert listing",
