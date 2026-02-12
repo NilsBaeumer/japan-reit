@@ -32,8 +32,12 @@ if _db_url.startswith("sqlite"):
     _engine_kwargs["connect_args"] = {"check_same_thread": False}
 else:
     # PostgreSQL / Supabase production mode
-    _engine_kwargs["pool_size"] = 20
-    _engine_kwargs["max_overflow"] = 10
+    # Supabase uses PgBouncer on port 6543 (transaction pooling mode).
+    # asyncpg's prepared statement cache conflicts with PgBouncer, so we disable it.
+    _engine_kwargs["pool_size"] = 5
+    _engine_kwargs["max_overflow"] = 5
+    _engine_kwargs["connect_args"] = {"prepared_statement_cache_size": 0}
+    _engine_kwargs["pool_pre_ping"] = True
 
 engine = create_async_engine(_db_url, **_engine_kwargs)
 
