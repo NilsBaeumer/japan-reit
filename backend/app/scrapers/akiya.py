@@ -853,6 +853,15 @@ class AkiyaScraper(AbstractScraper):
             if key in details:
                 address = details[key]
                 break
+        # Fuzzy match: detail pages may have keys like "所在地周辺情報を調べる"
+        if not address:
+            for detail_key, val in details.items():
+                if detail_key.startswith("所在地") or detail_key.startswith("住所"):
+                    # Clean: strip trailing "周辺情報を調べる" etc from value too
+                    clean = re.sub(r"周辺情報.*$", "", val).strip()
+                    if clean and re.search(r"[都道府県]", clean):
+                        address = clean
+                        break
 
         # ---- Areas ----
         land_area: float | None = None
