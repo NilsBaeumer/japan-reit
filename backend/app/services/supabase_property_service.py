@@ -217,7 +217,8 @@ class SupabasePropertyService:
             prop.lng = raw.longitude
         if raw.address:
             prop.address_ja = raw.address
-        if raw.municipality:
+        if raw.municipality and raw.municipality.isdigit():
+            # Only set if it looks like a JIS code (e.g. "13101"), not a name
             prop.municipality_code = raw.municipality
         if raw.prefecture:
             prop.prefecture_code = raw.prefecture
